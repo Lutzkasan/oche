@@ -1,0 +1,789 @@
+// Ausführen mit: node test/rules.test.mjs
+import assert from 'node:assert/strict';
+import { replay, matchLine, canStop, RULES } from '../js/engine.js';
+import { suggestCheckout } from '../js/checkout.js';
+import { playerStats, filterGames, rolling, hasPlay } from '../js/stats.js';
+import { atcTarget, dblTargets } from '../js/rules/atc.js';
+import { drawNumbers } from '../js/rules/killer.js';
+import { bobsTarget } from '../js/rules/bobs.js';
+import { drawHalveTargets, HALVE_SETS, BERMUDA } from '../js/rules/halveit.js';
+import { drawGrid } from '../js/rules/ttt.js';
+import { hareTarget } from '../js/rules/hare.js';
+import { jdcPlan, jdcGrade } from '../js/rules/jdc.js';
+import { galleryPoints } from '../js/rules/gallery.js';
+import { outStep } from '../js/rules/checks.js';
+import { importAll, SCHEMA } from '../js/db.js';
+
+// Schreibweise der Darts: 20, D20, T20, 25, BULL, - (daneben), X (Aufnahme beenden, Taste „Fertig")
+const D = (txt) => txt.split(/\s+/).filter(Boolean).map((t) => {
+  if (t === '-') return { s: 0, m: 1 };
+  if (t === 'X') return { s: 0, m: 0, stop: true };
+  if (t === 'BULL') return { s: 25, m: 2 };
+  const m = t[0] === 'T' ? 3 : t[0] === 'D' ? 2 : 1;
+  return { s: Number(m === 1 ? t : t.slice(1)), m };
+});
+const game = (mode, config, players, darts) => ({ mode, config: { legs: 1, sets: 1, ...config }, playerIds: Array(players).fill(0).map((_, i) => 'p' + i), darts: D(darts) });
+const done = (g) => ({ ...g, status: 'finished', finishedAt: 1 });
+// Asynchrone Tests werden gesammelt und vor der Schlusszeile abgewartet. Ein Fehler darin bricht den Lauf ab.
+let n = 0; const pending = [];
+const ok = (name, fn) => {
+  const fin = () => { n++; console.log('✓', name); };
+  const r = fn();
+  if (r instanceof Promise) pending.push(r.then(fin)); else fin();
+};
+
+// ---------- X01 ----------
+ok('501: 9-Darter', () => {
+  const st = replay(game('x01', { start: 501, in: 'single', out: 'double' }, 1, 'T20 T20 T20 T20 T20 T20 T20 T19 D12'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  assert.equal(st.turns.length, 3); assert.equal(st.turns[2].before, 141);
+});
+
+ok('Bust bei Rest 1 und Überwerfen setzt auf Aufnahmebeginn zurück', () => {
+  let st = replay(game('x01', { start: 41, in: 'single', out: 'double' }, 1, 'D20'));
+  assert.equal(st.leg.rem[0], 41); assert.equal(st.turns[0].bust, true);
+  st = replay(game('x01', { start: 41, in: 'single', out: 'double' }, 1, '1 T20'));
+  assert.equal(st.leg.rem[0], 41); assert.equal(st.turns[0].points, 0);
+});
+
+ok('Finish nur mit Doppel, Single Out mit jedem Dart', () => {
+  let st = replay(game('x01', { start: 40, in: 'single', out: 'double' }, 1, '20 20'));
+  assert.equal(st.finished, false); assert.equal(st.leg.rem[0], 40);
+  st = replay(game('x01', { start: 40, in: 'single', out: 'single' }, 1, '20 20'));
+  assert.equal(st.finished, true);
+  st = replay(game('x01', { start: 60, in: 'single', out: 'master' }, 1, 'T20'));
+  assert.equal(st.finished, true);
+});
+
+ok('Double In: Darts zählen erst ab dem ersten Doppel', () => {
+  const st = replay(game('x01', { start: 301, in: 'double', out: 'double' }, 1, 'T20 20 D10'));
+  assert.equal(st.leg.rem[0], 281); assert.equal(st.turns[0].points, 20);
+});
+
+ok('Spielerwechsel, Legs und Sets', () => {
+  // 2 Spieler, 41 Start, first to 2 Legs, 2 Sets. Spieler 0 checkt jedes Leg sofort.
+  const g = game('x01', { start: 41, in: 'single', out: 'double', legs: 2, sets: 2 }, 2, '');
+  const leg0 = D('1 D20');            // Starter 0 checkt
+  const leg1 = D('- - - 1 D20');      // Starter 1 wirft 3 daneben, dann checkt 0
+  g.darts = [...leg0, ...leg1, ...leg0, ...leg1];
+  const st = replay(g);
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.deepEqual(st.sets, [2, 0]);
+  assert.equal(st.legResults.length, 4);
+});
+
+ok('X01-Anzeige: Ø aus abgeschlossenen Aufnahmen', () => {
+  const st = replay(game('x01', { start: 501, in: 'single', out: 'double' }, 1, 'T20 T20 T20 20'));
+  const ml = matchLine(st, 0);
+  assert.equal(ml.avg, 180); assert.equal(ml.darts, 4); assert.equal(ml.last.points, 180);
+});
+
+ok('Stopp-Eintrag ist in Modi ohne Aufhören folgenlos und zählt nie als Dart', () => {
+  const st = replay(game('x01', { start: 501, in: 'single', out: 'double' }, 1, 'X T20 X'));
+  assert.equal(canStop(st), false);
+  // X01 erlaubt kein Aufhören, die App zeigt die Taste nicht. Kommt der Eintrag trotzdem, beendet er die Aufnahme ohne Dart.
+  assert.equal(st.darts.length, 1); assert.equal(st.turns.length, 1); assert.equal(st.turns[0].stopped, true);
+});
+
+// ---------- Cricket ----------
+ok('Cricket Standard: Punkte nur auf offene Gegnerfelder, Sieg mit Punktführung', () => {
+  const st = replay(game('cricket', { variant: 'standard' }, 2, 'T20 T20 - - - - T19 T18 T17 - - - T16 T15 BULL - - - BULL'));
+  // Spieler 0: 20 zu + 60 Punkte, dann 19,18,17,16,15 zu, Bull mit 2+2 Marks
+  assert.equal(st.leg.score[0], 60 + 25);
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+ok('Cricket Cut-Throat: Punkte gehen an den Gegner', () => {
+  const st = replay(game('cricket', { variant: 'cutthroat' }, 2, 'T20 T20'));
+  assert.equal(st.leg.score[1], 60); assert.equal(st.leg.score[0], 0);
+});
+
+ok('Cricket-Anzeige: MPR schließt die laufende Aufnahme ein', () => {
+  const st = replay(game('cricket', { variant: 'standard' }, 2, 'T20 T20 - D19'));
+  assert.equal(matchLine(st, 0).mpr, 6); // 6 Marks in 3 Darts
+  assert.equal(matchLine(st, 1).mpr, 6); // 2 Marks in 1 Dart
+});
+
+// ---------- Around the Clock ----------
+const ATC = (cfg) => ({ zone: 'any', bull: false, ...cfg });
+
+ok('Around the Clock: 1 bis 20 der Reihe nach, falsche Zahl zählt nicht', () => {
+  let st = replay(game('atc', ATC(), 1, '2 1 1'));
+  assert.equal(st.leg.pos[0], 1); assert.equal(atcTarget(st.leg, 0, st.cfg), 2);
+  st = replay(game('atc', ATC(), 1, Array.from({ length: 20 }, (_, i) => String(i + 1)).join(' ')));
+  assert.equal(st.finished, true); assert.equal(st.legResults[0].darts[0], 20);
+  assert.equal(matchLine(st, 0).hitRate, 1);
+});
+
+ok('Around the Clock: D/T springt, nur Doppel, nur Triple', () => {
+  let st = replay(game('atc', ATC({ zone: 'skip' }), 1, 'T1 D4 5'));
+  assert.equal(st.leg.pos[0], 5); assert.equal(atcTarget(st.leg, 0, st.cfg), 6);
+  st = replay(game('atc', ATC({ zone: 'double' }), 1, '1 T1 D1 2'));
+  assert.equal(st.leg.pos[0], 1);
+  st = replay(game('atc', ATC({ zone: 'triple' }), 1, 'D1 T1'));
+  assert.equal(st.leg.pos[0], 1);
+});
+
+ok('Around the Clock: Sprünge enden vor Bull, Bull beendet das Leg', () => {
+  let st = replay(game('atc', ATC({ zone: 'skip', bull: true }), 1, 'T1 T4 T7 T10 T13 T16 T19'));
+  assert.equal(atcTarget(st.leg, 0, st.cfg), 25); assert.equal(st.finished, false);
+  st = replay(game('atc', ATC({ zone: 'skip', bull: true }), 1, 'T1 T4 T7 T10 T13 T16 T19 25'));
+  assert.equal(st.finished, true);
+  st = replay(game('atc', ATC({ zone: 'triple', bull: true }), 1, 'T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 25'));
+  assert.equal(st.finished, false); // 25 zählt in „Nur Triple" nicht, nur Bull
+});
+
+ok('Around the Clock: Wer zuerst durch ist, gewinnt', () => {
+  const st = replay(game('atc', ATC({ zone: 'skip' }), 2, 'T1 T4 T7 1 2 3 T10 T13 T16 4 5 6 T19 D20'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.leg.pos[1], 6);
+});
+
+// ---------- Shanghai ----------
+const SH = (cfg) => ({ rounds: 7, instant: true, ...cfg });
+const rounds = (k, fn) => Array.from({ length: k }, (_, i) => fn(i + 1)).join(' ');
+
+ok('Shanghai: Nur die Zahl der Runde zählt, Punkte = Feldwert', () => {
+  const st = replay(game('shanghai', SH(), 1, '1 D1 5 T2 20 -'));
+  assert.equal(st.leg.score[0], 3 + 6); assert.equal(st.turns.length, 2);
+});
+
+ok('Shanghai: S+D+T in einer Aufnahme gewinnt sofort, abschaltbar', () => {
+  let st = replay(game('shanghai', SH(), 2, 'T1 1 D1'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.dartEvent.type, 'shanghai');
+  st = replay(game('shanghai', SH({ instant: false }), 2, 'T1 1 D1'));
+  assert.equal(st.finished, false); assert.equal(st.leg.score[0], 6);
+});
+
+ok('Shanghai: Nach der letzten Runde gewinnt die höchste Punktzahl, auch wenn sie nicht zuletzt geworfen hat', () => {
+  const st = replay(game('shanghai', SH(), 2, rounds(7, (r) => `${r} - - - - -`)));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.turns.length, 14);
+  assert.equal(st.turns.at(-1).p, 1); assert.equal(st.lastEvent.p, 0);
+});
+
+ok('Shanghai: Gleichstand führt ins Stechen nur der Punktgleichen', () => {
+  const tie = rounds(7, (r) => `${r} - - - - - ${r} - -`);
+  let st = replay(game('shanghai', SH(), 3, tie));
+  assert.equal(st.finished, false); assert.equal(st.lastEvent.type, 'tiebreak');
+  assert.deepEqual(st.leg.contenders, [0, 2]); assert.equal(st.current, 0);
+  st = replay(game('shanghai', SH(), 3, tie + ' 8 8 -'));
+  assert.equal(st.current, 2); // Spieler 1 wird übersprungen
+  st = replay(game('shanghai', SH(), 3, tie + ' 8 8 - 8 - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  assert.equal(st.turns.filter((t) => t.p === 1).length, 7);
+});
+
+ok('Shanghai: Leg-Sieger wechselt den Anwurf, Match über Legs', () => {
+  const st = replay(game('shanghai', SH({ rounds: 1, legs: 2 }), 2, '1 - - - - -  1 - - - - -  1 1 - 1 - -'));
+  assert.deepEqual(st.legResults.map((r) => r.winner), [0, 1, 0]);
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+// ---------- Killer ----------
+const K = (cfg) => ({ numbers: [20, 19, 18], lives: 3, zone: 'double', selfHit: true, ...cfg });
+
+ok('Killer: Erst das eigene Doppel macht zum Killer, vorher zählen fremde Zahlen nicht', () => {
+  let st = replay(game('killer', K(), 2, 'D19 - -'));
+  assert.deepEqual(st.leg.lives, [3, 3]); assert.equal(st.leg.killer[0], false);
+  st = replay(game('killer', K(), 2, 'D20 D19 19'));
+  assert.deepEqual(st.leg.lives, [3, 2]); assert.equal(st.leg.killer[0], true);
+});
+
+ok('Killer: Letzter mit Leben gewinnt', () => {
+  const st = replay(game('killer', K(), 2, 'D20 D19 D19 - - - D19'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.dartEvent.type, 'out');
+});
+
+ok('Killer: Eigentreffer wirft raus, der Gegner gewinnt ohne zu werfen', () => {
+  let st = replay(game('killer', K({ lives: 1 }), 2, 'D20 D20'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1); assert.equal(st.turns[0].darts.length, 2);
+  st = replay(game('killer', K({ lives: 1, selfHit: false }), 2, 'D20 D20 -'));
+  assert.deepEqual(st.leg.lives, [1, 1]); assert.equal(st.finished, false);
+});
+
+ok('Killer: Ausgeschiedene werden übersprungen', () => {
+  let st = replay(game('killer', K({ lives: 1 }), 3, 'D20 D19 -'));
+  assert.deepEqual(st.leg.lives, [1, 0, 1]); assert.equal(st.current, 2);
+  st = replay(game('killer', K({ lives: 1 }), 3, 'D20 D19 - - - - D18'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+ok('Killer: Ganzes Feld zählt S/D/T als 1/2/3 Treffer', () => {
+  const st = replay(game('killer', K({ zone: 'segment' }), 2, '20 T19'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(matchLine(st, 0).taken, 3);
+});
+
+ok('Killer: Zahlen sind verschieden', () => {
+  let i = 0; const seq = [0.9, 0.1, 0.5, 0.3, 0.7, 0.2];
+  const nums = drawNumbers(8, () => seq[i++ % seq.length]);
+  assert.equal(new Set(nums).size, 8); assert.ok(nums.every((x) => x >= 1 && x <= 20));
+});
+
+// ---------- Bob's 27 ----------
+const BO = (cfg) => ({ bull: true, hard: true, ...cfg });
+const miss = (turns) => Array(turns * 3).fill('-').join(' ');
+
+ok("Bob's 27: Treffer bringen den Doppelwert, eine Runde ohne Treffer zieht ihn ab", () => {
+  let st = replay(game('bobs', BO(), 1, 'D1 - - - - - - - -'));
+  assert.equal(st.leg.score[0], 27 + 2 - 4 - 6); assert.equal(bobsTarget(st.leg, 0), 4);
+  st = replay(game('bobs', BO(), 1, 'D1 - - D2 D2 D2 2 T3 D4'));
+  assert.equal(st.leg.score[0], 27 + 2 + 12 - 6); // 2, T3 und D4 treffen das Ziel D3 nicht
+  assert.equal(st.turns[1].points, 12); assert.equal(st.turns[2].points, -6);
+});
+
+ok("Bob's 27: unter 0 scheidet aus, ohne Ausscheiden geht es negativ weiter", () => {
+  let st = replay(game('bobs', BO(), 1, miss(5))); // 27 − 2 − 4 − 6 − 8 − 10 = −3
+  assert.equal(st.leg.score[0], -3); assert.equal(st.finished, true); assert.equal(st.dartEvent.type, 'out');
+  assert.equal(st.legResults[0].scores[0], -3);
+  st = replay(game('bobs', BO({ hard: false }), 1, miss(5)));
+  assert.equal(st.finished, false); assert.equal(st.leg.score[0], -3); assert.equal(bobsTarget(st.leg, 0), 6);
+});
+
+ok("Bob's 27: 20 oder 21 Runden, Bull zählt nur als Bull (50)", () => {
+  const allHit = (k) => Array.from({ length: k }, (_, i) => (i < 20 ? `D${i + 1} - -` : 'BULL 25 -')).join(' ');
+  let st = replay(game('bobs', BO(), 1, allHit(21)));
+  assert.equal(st.finished, true); assert.equal(st.leg.score[0], 27 + 420 + 50);
+  st = replay(game('bobs', BO({ bull: false }), 1, allHit(20)));
+  assert.equal(st.finished, true); assert.equal(st.turns.length, 20);
+});
+
+ok("Bob's 27: Ausgeschiedene werden übersprungen, wer weiter kommt, gewinnt", () => {
+  const darts = [];
+  for (let r = 1; r <= 21; r++) {
+    darts.push(r <= 20 ? `D${r} - -` : 'BULL - -');
+    if (r <= 5) darts.push('- - -');
+  }
+  let st = replay(game('bobs', BO(), 2, darts.slice(0, 10).join(' ')));
+  assert.deepEqual(st.leg.out, [false, true]); assert.equal(st.current, 0);
+  st = replay(game('bobs', BO(), 2, darts.join(' ')));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.turns.length, 26);
+});
+
+ok("Bob's 27: Gleichstand → Stechen auf Bull, dort scheidet niemand aus", () => {
+  let st = replay(game('bobs', BO(), 2, miss(10)));
+  assert.equal(st.lastEvent.type, 'tiebreak'); assert.deepEqual(st.leg.contenders, [0, 1]);
+  assert.equal(bobsTarget(st.leg, 0), 25); assert.equal(st.current, 0);
+  st = replay(game('bobs', BO(), 2, miss(10) + ' - - - - - -'));
+  assert.equal(st.finished, false); assert.equal(st.lastEvent.type, 'tiebreak'); // beide −53, weiter
+  st = replay(game('bobs', BO(), 2, miss(10) + ' BULL - - - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.deepEqual(st.leg.score, [47, -53]);
+});
+
+// ---------- Halve-It ----------
+const HV = (targets, cfg) => ({ set: 'custom', targets, ...cfg });
+
+ok('Halve-It: Zahl, jedes Doppel, jedes Triple, Bull', () => {
+  const st = replay(game('halveit', HV(['20', 'D', 'T', 'B']), 1, '20 T20 5  D10 BULL 20  T5 T20 D3  25 BULL -'));
+  assert.deepEqual(st.turns.map((t) => t.points), [80, 70, 75, 75]);
+  assert.equal(st.leg.score[0], 300); assert.equal(st.finished, true);
+});
+
+ok('Halve-It: Runde ohne Treffer halbiert, ungerade aufgerundet', () => {
+  const st = replay(game('halveit', HV(['19', '20']), 1, '19 - -  - - -'));
+  assert.equal(st.leg.score[0], 10); assert.equal(st.turns[1].points, -9);
+  assert.equal(st.dartEvent.type, 'halved');
+  const z = replay(game('halveit', HV(['19']), 1, '- - -'));
+  assert.equal(z.leg.score[0], 0); assert.equal(z.dartEvent, null); // bei 0 gibt es nichts zu halbieren
+});
+
+ok('Halve-It: Höchster Stand gewinnt, Gleichstand → Stechen auf Bull', () => {
+  let st = replay(game('halveit', HV(['20']), 2, '20 - - 20 - -'));
+  assert.equal(st.lastEvent.type, 'tiebreak'); assert.equal(st.finished, false);
+  st = replay(game('halveit', HV(['20']), 2, '20 - - 20 - - BULL - - - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.deepEqual(st.leg.score, [70, 10]);
+  st = replay(game('halveit', HV(['20']), 2, '20 - - T20 - -'));
+  assert.equal(st.winner, 1); assert.equal(st.turns.at(-1).p, 1);
+});
+
+ok('Halve-It: Zielfolgen', () => {
+  let i = 0; const seq = [0.13, 0.77, 0.42, 0.95, 0.05, 0.61, 0.28];
+  const t = drawHalveTargets(() => seq[i++ % seq.length]);
+  assert.equal(t.length, 9); assert.equal(t.at(-1), 'B');
+  assert.equal(t.filter((x) => x === 'D').length, 1); assert.equal(t.filter((x) => x === 'T').length, 1);
+  const nums = t.filter((x) => /^\d+$/.test(x));
+  assert.equal(new Set(nums).size, 6);
+  assert.equal(HALVE_SETS.std.length, 9); assert.equal(HALVE_SETS.short.length, 6);
+});
+
+ok('Halve-It: Abrunden als Option', () => {
+  const st = replay(game('halveit', HV(['19', '20'], { round: 'down' }), 1, '19 - -  - - -'));
+  assert.equal(st.leg.score[0], 9); assert.equal(st.turns[1].points, -10);
+});
+
+// ---------- 121 ----------
+const C = (cfg) => ({ start: 121, turns: 3, attempts: 10, fail: 'down', lock: true, ...cfg });
+
+ok('121: Check mit Doppel → Ziel +1, Check beendet die Aufnahme', () => {
+  const st = replay(game('c121', C(), 1, 'T20 T19 -  2 D1'));
+  assert.equal(st.leg.target[0], 122); assert.equal(st.leg.rem[0], 122);
+  assert.equal(st.leg.checks[0], 1); assert.equal(st.leg.best[0], 121); assert.equal(st.leg.rounds[0], 1);
+  assert.equal(st.turns.length, 2); assert.equal(st.turns[1].darts.length, 2);
+  assert.equal(st.leg.floor[0], 121); // 5 Darts sichern nicht
+  assert.equal(st.dartEvent.type, 'check'); assert.equal(st.darts.at(-1).attemptDarts, 5);
+});
+
+ok('121: Fehlversuch −1, nie unter Start, Überwerfen wie X01', () => {
+  let st = replay(game('c121', C(), 1, 'T20 T11 D14 ' + miss(3)));
+  assert.equal(st.leg.target[0], 121); // 122 verfehlt → 121
+  st = replay(game('c121', C(), 1, 'T20 T20'));
+  assert.equal(st.leg.rem[0], 121); assert.equal(st.turns[0].bust, true); // Rest 1 ist Bust und beendet die Aufnahme
+  assert.equal(st.turns[0].darts.length, 2);
+  st = replay(game('c121', C(), 1, 'T20 T20  - 1 -  - - -'));
+  assert.equal(st.dartEvent.type, 'fail'); assert.equal(st.leg.target[0], 121); assert.equal(st.leg.rounds[0], 1);
+  st = replay(game('c121', C({ turns: 1 }), 1, 'T20 T20 T20'));
+  assert.equal(st.turns[0].bust, true); assert.equal(st.leg.rounds[0], 1); // Bust in der letzten Aufnahme beendet den Versuch
+});
+
+ok('121: Check in 3 Darts sichert das Ziel, Fehlversuch-Regel wählbar', () => {
+  const two = 'T20 T11 D14  T20 T14 D10 ';            // 121 und 122 jeweils in 3 Darts
+  const darts = two + miss(3) + ' ' + miss(3);          // dann zweimal verfehlt
+  const run = (cfg) => replay(game('c121', C(cfg), 1, darts)).leg.target[0];
+  assert.equal(run({}), 122);                            // 123 → 122 → bleibt 122 (gesichert)
+  assert.equal(run({ lock: false }), 121);               // 123 → 122 → 121
+  assert.equal(run({ fail: 'start' }), 122);             // zurück auf das gesicherte Ziel
+  assert.equal(run({ fail: 'start', lock: false }), 121);
+});
+
+ok('121: Mehrere Spieler, Fertige werden übersprungen, Wertung nach bestem Ziel', () => {
+  let st = replay(game('c121', C({ attempts: 1 }), 2, 'T20 T11 D14  - - -'));
+  assert.equal(st.current, 1); assert.equal(st.finished, false);
+  st = replay(game('c121', C({ attempts: 1 }), 2, 'T20 T11 D14 ' + miss(3)));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  st = replay(game('c121', C({ attempts: 1 }), 2, miss(6)));
+  assert.equal(st.lastEvent.type, 'tiebreak'); assert.deepEqual(st.leg.contenders, [0, 1]);
+  // Stechen: je ein weiterer Versuch. Spieler 1 checkt, Spieler 0 wirft seinen Versuch allein zu Ende.
+  st = replay(game('c121', C({ attempts: 1 }), 2, miss(6) + ' - - -  T20 T11 D14  - - -'));
+  assert.equal(st.finished, false); assert.equal(st.current, 0);
+  st = replay(game('c121', C({ attempts: 1 }), 2, miss(6) + ' - - -  T20 T11 D14  - - -  - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1);
+});
+
+ok('Gemeinsame Checkout-Regel: Bull zählt als Doppel, Rest 1 ist Bust', () => {
+  assert.deepEqual(outStep(50, { s: 25, m: 2 }), { after: 0, bust: false, check: true, atDouble: true });
+  assert.equal(outStep(41, { s: 20, m: 2 }).bust, true);
+  assert.equal(outStep(40, { s: 20, m: 1 }).bust, false);
+  assert.equal(outStep(20, { s: 20, m: 1 }).bust, true);
+});
+
+// ---------- Tic-Tac-Toe ----------
+const TT = (cfg) => ({ grid: [1, 2, 3, 4, 25, 5, 6, 7, 8], need: 1, ...cfg });
+
+ok('Tic-Tac-Toe: Ein Treffer nimmt das Feld, drei in einer Reihe gewinnen', () => {
+  let st = replay(game('ttt', TT(), 2, '1 2 -  4 - -  3'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.deepEqual(st.leg.owner.slice(0, 3), [0, 0, 0]);
+  st = replay(game('ttt', TT(), 2, '1 - -  1 - -'));
+  assert.equal(st.leg.owner[0], 0); // besetztes Feld bleibt beim ersten Besitzer
+  assert.equal(RULES.ttt.minPlayers, 2); assert.equal(RULES.ttt.maxPlayers, 2);
+});
+
+ok('Tic-Tac-Toe: Vier Marks je Feld, Bull 25 = 1 und 50 = 2', () => {
+  let st = replay(game('ttt', TT({ need: 4 }), 2, 'T1 - -'));
+  assert.equal(st.leg.owner[0], -1); assert.equal(st.leg.marks[0][0], 3);
+  st = replay(game('ttt', TT({ need: 4 }), 2, 'T1 1 -'));
+  assert.equal(st.leg.owner[0], 0);
+  st = replay(game('ttt', TT({ need: 4 }), 2, 'BULL 25 25'));
+  assert.equal(st.leg.owner[4], 0);
+});
+
+ok('Tic-Tac-Toe: Volles Raster ohne Reihe → mehr Felder gewinnt', () => {
+  const st = replay(game('ttt', TT(), 2, '1 2 -  3 4 -  5 6 -  25 7 -  8 - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.legResults[0].scores[0], 5);
+});
+
+ok('Tic-Tac-Toe: Raster aus 8 verschiedenen Zahlen, Bull in der Mitte', () => {
+  const g = drawGrid();
+  assert.equal(g.length, 9); assert.equal(g[4], 25); assert.equal(new Set(g).size, 9);
+});
+
+// ---------- Hare and Hounds ----------
+const HH = (cfg) => ({ start: 5, skip: false, catch: 'reach', ...cfg });
+const ROUTE = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+
+ok('Hare and Hounds: Laufweg im Uhrzeigersinn, Hund startet hinter dem Hasen', () => {
+  const st = replay(game('hare', HH(), 2, '20 1 -  5 - -'));
+  assert.equal(hareTarget(st.leg, 0), 18); assert.equal(hareTarget(st.leg, 1), 20);
+  assert.deepEqual(st.leg.pos, [2, 0]); assert.equal(st.finished, false);
+});
+
+ok('Hare and Hounds: Hund gewinnt beim Erreichen, Option Überholen', () => {
+  let st = replay(game('hare', HH(), 2, '- - -  5'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1); assert.equal(st.dartEvent.type, 'caught');
+  st = replay(game('hare', HH({ catch: 'pass' }), 2, '- - -  5'));
+  assert.equal(st.finished, false);
+  st = replay(game('hare', HH({ catch: 'pass' }), 2, '- - -  5 20'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1);
+});
+
+ok('Hare and Hounds: Hase gewinnt nach 20 Feldern, Doppel rückt nur eins vor', () => {
+  const hits = ROUTE.map(String);
+  const darts = [];
+  for (let i = 0; i < hits.length; i += 3) darts.push(hits.slice(i, i + 3).join(' '), '- - -');
+  const st = replay(game('hare', HH(), 2, darts.join(' ')));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  const d = replay(game('hare', HH(), 2, 'D20'));
+  assert.equal(d.leg.pos[0], 1);
+});
+
+ok('Hare and Hounds: Optionen Start 12 und D/T springt', () => {
+  let st = replay(game('hare', HH({ start: 12 }), 2, ''));
+  assert.deepEqual(st.leg.pos, [0, -2]); assert.equal(hareTarget(st.leg, 1), 12);
+  st = replay(game('hare', HH({ skip: true }), 2, 'T20'));
+  assert.equal(st.leg.pos[0], 3); assert.equal(hareTarget(st.leg, 0), 4);
+});
+
+ok('Hare and Hounds: Neues Leg tauscht die Rollen', () => {
+  const st = replay(game('hare', HH({ legs: 2 }), 2, '- - -  5'));
+  assert.equal(st.legResults.length, 1); assert.equal(st.leg.hare, 1); assert.equal(st.current, 1);
+});
+
+// ---------- Follow the Leader ----------
+const FL = (cfg) => ({ lives: 3, ...cfg });
+
+ok('Follow the Leader: Festlegen, nachwerfen, neues Ziel mit dem letzten Dart', () => {
+  let st = replay(game('follow', FL(), 2, 'T20 X'));
+  assert.deepEqual(st.leg.target, { s: 20, m: 3 }); assert.equal(st.leg.setter, 0); assert.equal(st.current, 1);
+  st = replay(game('follow', FL(), 2, 'T20 X  20 T20 D5'));
+  assert.deepEqual(st.leg.target, { s: 5, m: 2 }); assert.equal(st.leg.setter, 1); assert.deepEqual(st.leg.lives, [3, 3]);
+  st = replay(game('follow', FL(), 2, 'T20 X  20 T20 D5  - - -'));
+  assert.deepEqual(st.leg.lives, [2, 3]); assert.equal(st.lastEvent.type, 'life');
+});
+
+ok('Follow the Leader: Treffer mit dem dritten Dart gibt eine Extra-Aufnahme zum Festlegen', () => {
+  const st = replay(game('follow', FL(), 2, 'T20 X  - - T20'));
+  assert.equal(st.current, 1); assert.equal(st.leg.target, null);
+  assert.equal(canStop(st), false);
+  const s2 = replay(game('follow', FL(), 2, 'T20 X  - - T20  19'));
+  assert.equal(canStop(s2), true);
+});
+
+ok('Follow the Leader: Setzer darf passen, Festlegen daneben kostet ein Leben', () => {
+  let st = replay(game('follow', FL(), 2, 'T20 X  - - -  - - -'));
+  assert.deepEqual(st.leg.lives, [3, 2]); assert.deepEqual(st.leg.target, { s: 20, m: 3 });
+  st = replay(game('follow', FL(), 2, '20 -'));
+  assert.equal(st.turns.length, 0);
+  st = replay(game('follow', FL(), 2, '20 - -'));
+  assert.deepEqual(st.leg.lives, [2, 3]); assert.equal(st.leg.target, null);
+});
+
+ok('Follow the Leader: Letzter mit Leben gewinnt', () => {
+  const st = replay(game('follow', FL({ lives: 1 }), 2, 'T20 X  - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+// ---------- Chase the Dragon ----------
+ok('Chase the Dragon: T10 bis T20, 25, Bull der Reihe nach', () => {
+  const seq = 'T10 T11 T12 T13 T14 T15 T16 T17 T18 T19 T20 25 BULL';
+  let st = replay(game('chase', { laps: 1 }, 1, seq));
+  assert.equal(st.finished, true); assert.equal(st.legResults[0].darts[0], 13);
+  st = replay(game('chase', { laps: 1 }, 1, '10 D10 T11'));
+  assert.equal(st.leg.pos[0], 0); // nur das Triple zählt, die Reihenfolge auch
+  st = replay(game('chase', { laps: 3 }, 1, seq));
+  assert.equal(st.finished, false); assert.equal(st.leg.pos[0], 13);
+});
+
+// ---------- Golf ----------
+const GO = (cfg) => ({ holes: 3, table: 'gld', count: 'last', ...cfg });
+
+ok('Golf: Letzter Dart zählt, Aufhören mit „Fertig", Doppel beendet das Loch', () => {
+  let st = replay(game('golf', GO(), 1, '1 X  D2  - - -'));
+  assert.deepEqual(st.turns.map((t) => t.strokes), [3, 1, 5]);
+  assert.equal(st.finished, true); assert.equal(st.legResults[0].scores[0], 9);
+  st = replay(game('golf', GO(), 1, 'T1 - -'));
+  assert.equal(st.turns[0].strokes, 5); // ohne Aufhören zählt der letzte Dart
+  st = replay(game('golf', GO(), 1, 'T1'));
+  assert.equal(canStop(st), true);
+});
+
+ok('Golf: Bester Dart und zweite Schlagtabelle als Option', () => {
+  let st = replay(game('golf', GO({ count: 'best' }), 1, '1 T1 -'));
+  assert.equal(st.turns[0].strokes, 2); assert.equal(canStop(st), false);
+  st = replay(game('golf', GO({ table: 'darthelp' }), 1, 'T1 X  2 X'));
+  assert.deepEqual(st.turns.map((t) => t.strokes), [3, 4]);
+});
+
+ok('Golf: Wenigste Schläge gewinnt, Gleichstand → Stechen auf dem nächsten Loch', () => {
+  let st = replay(game('golf', GO({ holes: 1 }), 2, 'D1  1 X'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  st = replay(game('golf', GO({ holes: 1 }), 2, 'D1  D1'));
+  assert.equal(st.lastEvent.type, 'tiebreak'); assert.equal(st.finished, false);
+  st = replay(game('golf', GO({ holes: 1 }), 2, 'D1  D1  2 X  D2'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1);
+});
+
+// ---------- Knockout ----------
+const KO = (cfg) => ({ lives: 3, bar: 'prev', ...cfg });
+
+ok('Knockout: Vorwerfer übertreffen, Gleichstand reicht nicht', () => {
+  let st = replay(game('knockout', KO(), 2, '20 20 20  20 20 19'));
+  assert.deepEqual(st.leg.lives, [3, 2]); assert.equal(st.lastEvent.type, 'strike');
+  st = replay(game('knockout', KO(), 2, '20 20 20  20 20 19  20 20 20'));
+  assert.deepEqual(st.leg.lives, [3, 2]); // 60 schlägt den Vorwerfer mit 59
+  st = replay(game('knockout', KO(), 2, '20 20 20  20 20 20'));
+  assert.deepEqual(st.leg.lives, [3, 2]);
+});
+
+ok('Knockout: Option Höchstwert, Letzter gewinnt', () => {
+  let st = replay(game('knockout', KO({ bar: 'high' }), 2, '20 20 20  20 20 19  20 20 20'));
+  assert.deepEqual(st.leg.lives, [2, 2]); // 60 schlägt den Höchstwert 60 nicht
+  st = replay(game('knockout', KO(), 3, '20 - -  - - -  5 - -'));
+  assert.deepEqual(st.leg.lives, [3, 2, 3]); // Vorwerfer-Regel: 5 schlägt die 0 davor
+  st = replay(game('knockout', KO({ lives: 1 }), 3, '20 - -  - - -  - - -'));
+  assert.deepEqual(st.leg.lives, [1, 0, 0]); assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+// ---------- Nine Lives ----------
+ok('Nine Lives: Mehrere Treffer je Aufnahme, Aufnahme ohne Treffer kostet ein Leben', () => {
+  let st = replay(game('ninelives', { lives: 3 }, 1, '1 2 3  - 5 -'));
+  assert.equal(st.leg.pos[0], 3); assert.equal(st.leg.lives[0], 2);
+  st = replay(game('ninelives', { lives: 1 }, 1, '- - -'));
+  assert.equal(st.finished, true); // allein endet das Leg mit dem letzten Leben
+  st = replay(game('ninelives', { lives: 1 }, 2, '1 - -  - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  st = replay(game('ninelives', { lives: 9 }, 1, rounds(20, (r) => String(r))));
+  assert.equal(st.finished, true); assert.equal(st.leg.lives[0], 9);
+});
+
+// ---------- Blind Killer ----------
+const BK = (cfg) => ({ numbers: [20, 19, 18], lives: 3, triple: false, ...cfg });
+
+ok('Blind Killer: Jedes Doppel auf eine Zahl im Spiel kostet ihren Besitzer ein Leben, auch den Werfer', () => {
+  let st = replay(game('blindkiller', BK(), 3, 'D19 19 D20'));
+  assert.deepEqual(st.leg.lives, [2, 2, 3]);
+  st = replay(game('blindkiller', BK(), 3, 'T19 D5 -'));
+  assert.deepEqual(st.leg.lives, [3, 3, 3]);
+  st = replay(game('blindkiller', BK({ triple: true }), 3, 'T19'));
+  assert.deepEqual(st.leg.lives, [3, 1, 3]);
+});
+
+ok('Blind Killer: Ausscheiden und Letzter gewinnt', () => {
+  let st = replay(game('blindkiller', BK({ lives: 1 }), 3, 'D19 D18'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  st = replay(game('blindkiller', BK({ lives: 1 }), 2, 'D20'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1); // Eigentreffer wirft raus
+});
+
+// ---------- Mickey Mouse ----------
+const MM = (cfg) => ({ dt: true, ordered: false, points: false, ...cfg });
+
+ok('Mickey Mouse: 20 bis 12, Doppel, Triple, Bull. D/T schließt zuerst die Zahl', () => {
+  let st = replay(game('mickey', MM(), 2, 'D20 20 D20'));
+  assert.equal(st.leg.marks[0]['20'], 3); assert.equal(st.leg.marks[0].D, 1);
+  st = replay(game('mickey', MM(), 2, 'D5 T5 BULL'));
+  assert.equal(st.leg.marks[0].D, 1); assert.equal(st.leg.marks[0].T, 1); assert.equal(st.leg.marks[0].B, 2);
+  st = replay(game('mickey', MM({ dt: false }), 2, 'D5'));
+  assert.equal(st.leg.marks[0].D, undefined);
+});
+
+ok('Mickey Mouse: der Reihe nach und mit Punkten als Option', () => {
+  let st = replay(game('mickey', MM({ ordered: true }), 2, '19 T20 19'));
+  assert.equal(st.leg.marks[0]['19'], 1); assert.equal(st.leg.marks[0]['20'], 3);
+  st = replay(game('mickey', MM({ points: true, dt: false }), 2, 'T20 T20'));
+  assert.equal(st.leg.score[0], 60);
+  const all = 'T20 T19 T18 T17 T16 T15 T14 T13 T12 D1 D2 D3 T1 T2 T3 BULL 25';
+  const darts = all.split(' ');
+  const seq = [];
+  for (let i = 0; i < darts.length; i += 3) seq.push(darts.slice(i, i + 3).join(' '), '- - -');
+  st = replay(game('mickey', MM(), 2, seq.join(' ')));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+// ---------- Shove Ha'penny ----------
+ok("Shove Ha'penny: Überzählige Marks gehen an den Gegner, Bull optional", () => {
+  let st = replay(game('shove', { bull: true }, 2, 'T1 1 -'));
+  assert.equal(st.leg.marks[0]['1'], 3); assert.equal(st.leg.marks[1]['1'], 1);
+  st = replay(game('shove', { bull: true }, 2, 'BULL 25'));
+  assert.equal(st.leg.marks[0].B, 2);
+  st = replay(game('shove', { bull: false }, 2, 'BULL'));
+  assert.equal(st.leg.marks[0].B, undefined); assert.equal(st.darts[0].marks, 0);
+});
+
+ok("Shove Ha'penny: Wer zuerst alles zu hat, gewinnt, auch durch ein Geschenk", () => {
+  let st = replay(game('shove', { bull: false }, 1, 'T1 T2 T3 T4 T5 T6 T7 T8 T9'));
+  assert.equal(st.finished, true);
+  // Spieler 1 braucht nur noch die 9 und bekommt sie geschenkt
+  const p1 = 'T1 T2 T3  T4 T5 T6  T7 T8 -';
+  st = replay(game('shove', { bull: false }, 2, `- - -  ${p1.split('  ')[0]}  - - -  ${p1.split('  ')[1]}  - - -  ${p1.split('  ')[2]}  T9 T9 -`));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1);
+});
+
+// ---------- Bermuda Triangle ----------
+ok('Bermuda Triangle: 13 feste Runden, 25-Runde zählt Bull als 25, letzte Runde nur Bull', () => {
+  assert.equal(BERMUDA.length, 13);
+  const cfg = { targets: BERMUDA, round: 'down' };
+  const pre = '12 - -  13 - -  14 - -  D1 - -  15 - -  16 - -  17 - -  T1 - -  18 - -  19 - -  20 - -';
+  let st = replay(game('bermuda', cfg, 1, pre + '  BULL 25 -  25 - -'));
+  assert.equal(st.turns[11].points, 50); assert.equal(st.finished, true);
+  const before = st.turns.slice(0, 12).reduce((a, t) => a + t.points, 0);
+  assert.equal(st.leg.score[0], before - Math.ceil(before / 2)); // 25 trifft in Runde 13 nicht, Halbierung abgerundet
+});
+
+// ---------- Gotcha ----------
+const GT = (cfg) => ({ goal: 301, over: 'bust', out: 'any', ...cfg });
+
+ok('Gotcha: Gleichstand setzt den Gegner auf 0', () => {
+  const st = replay(game('gotcha', GT(), 2, '20 20 -  20 - 20'));
+  assert.deepEqual(st.leg.score, [0, 40]); assert.equal(st.dartEvent.type, 'gotcha');
+});
+
+ok('Gotcha: Genau das Ziel gewinnt, Überwerfen ist Bust, Varianten', () => {
+  let st = replay(game('gotcha', GT({ goal: 60 }), 2, 'T20'));
+  assert.equal(st.finished, true);
+  st = replay(game('gotcha', GT({ goal: 60 }), 2, '20 T20'));
+  assert.equal(st.leg.score[0], 0); assert.equal(st.turns[0].bust, true);
+  st = replay(game('gotcha', GT({ goal: 60, over: 'back' }), 2, '20 T20 -'));
+  assert.equal(st.leg.score[0], 40); // 80 ist 20 zu viel, zurück auf 40
+  st = replay(game('gotcha', GT({ goal: 60, out: 'double' }), 2, 'T20'));
+  assert.equal(st.finished, false); assert.equal(st.turns[0].bust, true);
+  st = replay(game('gotcha', GT({ goal: 60, out: 'double' }), 2, '20 D20'));
+  assert.equal(st.finished, true);
+});
+
+// ---------- Doppel-Training ----------
+ok('Doppel-Training: nur Doppel, Reihenfolge wählbar', () => {
+  assert.deepEqual(dblTargets('desc', true).slice(0, 2), [20, 19]);
+  assert.equal(dblTargets('desc', true).at(-1), 25);
+  let i = 0; const r = dblTargets('random', false, () => [0.3, 0.8, 0.1][i++ % 3]);
+  assert.equal(new Set(r).size, 20);
+  const st = replay(game('dbl', { zone: 'double', order: 'desc', bull: false, targets: dblTargets('desc', false) }, 1, '20 D20 D19'));
+  assert.equal(st.leg.pos[0], 2);
+});
+
+// ---------- JDC Challenge ----------
+ok('JDC Challenge: Aufbau und Wertung', () => {
+  assert.equal(jdcPlan(1).length, 19); assert.equal(jdcPlan(5).length, 30 + 35 + 30);
+  let st = replay(game('jdc', { reps: 1 }, 1, '10 D10 T10'));
+  assert.equal(st.leg.score[0], 160); assert.equal(st.dartEvent.type, 'shanghai');
+  const p1 = '- - -  '.repeat(6);
+  st = replay(game('jdc', { reps: 1 }, 1, p1 + 'D1 D2 3  - - -  - - -  - - -  - - -  - - -  D19 D20 BULL'));
+  assert.equal(st.leg.score[0], 50 + 50 + 50 + 50 + 100); assert.deepEqual(st.leg.parts[0], [0, 0, 300, 0]);
+  assert.equal(jdcGrade(160), 'Purple'); assert.equal(jdcGrade(900), 'Black');
+});
+
+ok('JDC Challenge: Mehrspieler nach Summe, Gleichstand → Stechen auf Bull', () => {
+  const all = '- - -  '.repeat(19 * 2);
+  let st = replay(game('jdc', { reps: 1 }, 2, all));
+  assert.equal(st.lastEvent.type, 'tiebreak');
+  st = replay(game('jdc', { reps: 1 }, 2, all + 'BULL - -  25 - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+// ---------- Shooting Gallery ----------
+ok('Shooting Gallery: Punkte nach Darts, Fehlversuch 0, weiter mit der nächsten Zahl', () => {
+  assert.deepEqual([3, 4, 5, 6, 7, 8, 9].map(galleryPoints), [12, 8, 6, 5, 3, 2, 1]);
+  let st = replay(game('gallery', {}, 1, 'T20 T11 D14'));
+  assert.equal(st.leg.score[0], 12); assert.equal(st.leg.target[0], 122);
+  st = replay(game('gallery', {}, 1, miss(3)));
+  assert.equal(st.leg.score[0], 0); assert.equal(st.leg.target[0], 122); assert.equal(st.dartEvent.type, 'fail');
+  st = replay(game('gallery', {}, 1, 'T20 T11 -  D14'));
+  assert.equal(st.leg.score[0], 8);
+});
+
+// ---------- Engine-Erweiterungen ----------
+ok('Spielerzahl je Modus', () => {
+  assert.equal(RULES.hare.maxPlayers, 4); assert.equal(RULES.gotcha.minPlayers, 2);
+  for (const r of Object.values(RULES)) assert.ok(r.title && r.subtitle && r.initLeg && r.applyDart && r.score && r.line, r.id);
+});
+
+ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
+  const base = { app: 'oche', players: [], games: [] };
+  assert.equal(SCHEMA, 4);
+  await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
+  await assert.rejects(importAll({ ...base, schema: 4, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+});
+
+// ---------- Checkout ----------
+ok('Checkout-Vorschläge', () => {
+  assert.deepEqual(suggestCheckout(170, 3, 'double'), ['T20', 'T20', 'BULL']);
+  assert.deepEqual(suggestCheckout(100, 3, 'double'), ['T20', 'D20']);
+  assert.deepEqual(suggestCheckout(40, 1, 'double'), ['D20']);
+  assert.equal(suggestCheckout(169, 3, 'double'), null);
+  assert.equal(suggestCheckout(101, 1, 'double'), null);
+  assert.deepEqual(suggestCheckout(57, 1, 'master'), ['T19']);
+  assert.deepEqual(suggestCheckout(61, 2, 'double'), ['T15', 'D8']);
+  assert.deepEqual(suggestCheckout(167, 3, 'double'), ['T20', 'T19', 'BULL']);
+});
+
+// ---------- Statistik ----------
+ok('Statistik: Filter nach Zeitraum und Modus', () => {
+  const now = Date.UTC(2026, 10, 11);
+  const g = (mode, start, daysAgo) => ({ mode, config: { start }, finishedAt: now - daysAgo * 864e5 });
+  const games = [g('x01', 501, 1), g('x01', 301, 20), g('cricket', undefined, 3), g('x01', 501, 200), g('killer', undefined, 2), g('atc', undefined, 40)];
+  assert.equal(filterGames(games, { days: null, mode: 'all' }, now).length, 6);
+  assert.equal(filterGames(games, { days: 7, mode: 'all' }, now).length, 3);
+  assert.equal(filterGames(games, { days: 30, mode: 'x01' }, now).length, 2);
+  assert.equal(filterGames(games, { days: null, mode: '501' }, now).length, 2);
+  assert.equal(filterGames(games, { days: null, mode: 'cricket' }, now).length, 1);
+  assert.equal(filterGames(games, { days: null, mode: 'killer' }, now).length, 1);
+  assert.equal(filterGames(games, { days: 30, mode: 'atc' }, now).length, 0);
+});
+
+ok('Statistik: Ein Spiel zählt für einen Spieler erst mit einem eigenen Dart (Filter und Kennzahlen gleich)', () => {
+  const g = game('x01', { start: 501, in: 'single', out: 'double' }, 2, 'T20');
+  assert.equal(hasPlay(g, 'p0'), true); assert.equal(hasPlay(g, 'p1'), false);
+  assert.equal(hasPlay(game('golf', GO(), 1, ''), 'p0'), false);
+  assert.equal(playerStats('p1', [g]).x01.matches, 0);
+});
+
+ok('Statistik: gleitender Mittelwert', () => {
+  assert.deepEqual(rolling([10, 20, 30, 40], 2), [10, 15, 25, 35]);
+});
+
+ok('Statistik: Trefferbild zählt nur die Darts des Spielers', () => {
+  const gm = { ...game('x01', { start: 501, in: 'single', out: 'double' }, 2, 'T20 20 - T19 T19 5'), status: 'active' };
+  const b0 = playerStats('p0', [gm]).board, b1 = playerStats('p1', [gm]).board;
+  assert.deepEqual(b0, { counts: { '20-3': 1, '20-1': 1 }, total: 3, miss: 1 });
+  assert.deepEqual(b1, { counts: { '19-3': 2, '5-1': 1 }, total: 3, miss: 0 });
+});
+
+ok('Statistik: Around the Clock Trefferquote und bestes Leg', () => {
+  const g = done(game('atc', ATC(), 1, '1 - 2 ' + Array.from({ length: 18 }, (_, i) => String(i + 3)).join(' ')));
+  const a = playerStats('p0', [g]).atc;
+  assert.equal(a.darts, 21); assert.equal(a.hits, 20); assert.equal(a.bestLeg, 21);
+  assert.equal(a.history.length, 1); assert.ok(Math.abs(a.history[0].value - (20 / 21) * 100) < 1e-9);
+});
+
+ok('Statistik: Shanghai Punkte je Runde und Shanghais', () => {
+  const g = { ...game('shanghai', SH({ instant: false }), 1, 'T1 1 D1 2 - -'), status: 'active' };
+  const s = playerStats('p0', [g]).shanghai;
+  assert.equal(s.points, 8); assert.equal(s.ppr, 4); assert.equal(s.shanghais, 1); assert.equal(s.hits, 4);
+});
+
+ok('Statistik: Killer Darts bis Killer und genommene Leben', () => {
+  const g = { ...game('killer', K({ numbers: [20, 19] }), 2, '- D20 D19 - - D19'), status: 'active' };
+  const k0 = playerStats('p0', [g]).killer, k1 = playerStats('p1', [g]).killer;
+  assert.equal(k0.avgToKiller, 2); assert.equal(k0.taken, 1);
+  assert.equal(k1.avgToKiller, 3); assert.equal(k1.taken, 0);
+});
+
+ok('Statistik: Bob\'s 27, Halve-It, 121', () => {
+  const b = done(game('bobs', BO(), 1, miss(5)));
+  const bo = playerStats('p0', [b]).bobs;
+  assert.equal(bo.avgScore, -3); assert.equal(bo.survived, 0); assert.equal(bo.finishedLegs, 1); assert.equal(bo.hitRate, 0);
+  const h = done(game('halveit', HV(['19', '20']), 1, '19 - -  - - -'));
+  const hv = playerStats('p0', [h]).halveit;
+  assert.equal(hv.bestScore, 10); assert.equal(hv.halved, 1); assert.equal(hv.hits, 1); assert.equal(hv.turns, 2);
+  const c = done(game('c121', C({ attempts: 2 }), 1, 'T20 T19 -  2 D1 ' + miss(3)));
+  const cc = playerStats('p0', [c]).c121;
+  assert.equal(cc.checks, 1); assert.equal(cc.attempts, 2); assert.equal(cc.rate, 0.5);
+  assert.equal(cc.dartsPerCheck, 5); assert.equal(cc.best, 121); assert.equal(cc.history[0].value, 50);
+});
+
+ok('Statistik: neue Modi (Golf, Gallery, JDC, Follow, Hare, Doppel-Training, Knockout, Gotcha)', () => {
+  const gf = playerStats('p0', [done(game('golf', GO(), 1, '1 X  D2  - - -'))]).golf;
+  assert.equal(gf.perHole, 3); assert.equal(gf.aces, 1); assert.equal(gf.best[3], 9); assert.equal(gf.history[0].value, 3);
+  const ga = playerStats('p0', [done(game('gallery', {}, 1, 'T20 T11 D14 ' + miss(27)))]).gallery;
+  assert.equal(ga.checks, 1); assert.equal(ga.attempts, 10); assert.equal(ga.avgScore, 12); assert.equal(ga.dartsPerCheck, 3);
+  const jd = playerStats('p0', [done(game('jdc', { reps: 1 }, 1, '10 D10 T10 ' + miss(18)))]).jdc;
+  assert.equal(jd.bestScore, 160); assert.equal(jd.shanghais, 1); assert.deepEqual(jd.partAvg.slice(1), [160, 0, 0]);
+  const fl = playerStats('p1', [done(game('follow', FL({ lives: 1 }), 2, 'T20 X  - - -'))]).follow;
+  assert.equal(fl.tries, 1); assert.equal(fl.hits, 0); assert.equal(fl.lost, 1);
+  const hh = playerStats('p1', [done(game('hare', HH(), 2, '- - -  5'))]).hare;
+  assert.equal(hh.houndWins, 1); assert.equal(hh.hareLegs, 0);
+  const db = playerStats('p0', [done(game('dbl', { zone: 'double', order: 'asc', bull: false, targets: dblTargets('asc', false) }, 1, '- D1 - D2'))]).dbl;
+  assert.equal(db.perDouble, 2);
+  const ko = playerStats('p1', [done(game('knockout', KO({ lives: 1 }), 2, '20 - -  - - -'))]).knockout;
+  assert.equal(ko.strikes, 1); assert.equal(ko.ppr, 0);
+  const gt = playerStats('p1', [{ ...game('gotcha', GT(), 2, '20 20 -  20 - 20'), status: 'active' }]).gotcha;
+  assert.equal(gt.kills, 1); assert.equal(gt.avg, 40);
+});
+
+await Promise.all(pending);
+console.log(`\n${n} Tests bestanden`);
