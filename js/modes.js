@@ -4,17 +4,17 @@
 //   config(setup)     Regelparameter                  prepare(cfg, n)  Werte je Match, beim Start einmal ausgelost (optional)
 //   board(st)         Spielbrett                      nums(st)         Zahlentasten
 //   targets(st)       hervorgehobene Tasten [[Zahl, Farbe]]            mult(st) Doppel/Triple-Taste markieren (2/3)
-//   turnSum(turn, st) Summenfeld der Aufnahme         homeScore(st, p) Stand in „Laufende Spiele"
+//   turnSum(turn, st) Summenfeld der Runde (3 Darts)         homeScore(st, p) Stand in „Laufende Spiele"
 //   col               [Kopf, Wert(matchLine)] im Match-Overlay          overlaySub(st, ev), bar(st)  optional
 //   stats(s, h)       Abschnitt in der Statistik (s = Zähler aus stats.js, h = Bausteine aus app.js)
 import { matchLine, dartLabel } from './engine.js';
 import { suggestCheckout } from './checkout.js';
-import { atcTargets, chaseTargets, chaseLabel, dblTargets } from './rules/atc.js';
+import { atcTargets, atcOrder, chaseTargets, chaseLabel, dblTargets } from './rules/atc.js';
 import { shanghaiTarget } from './rules/shanghai.js';
 import { drawNumbers } from './rules/killer.js';
 import { bobsTarget } from './rules/bobs.js';
 import { HALVE_SETS, BERMUDA, drawHalveTargets, halveTarget, halveLabel, halveKey } from './rules/halveit.js';
-import { NEED } from './rules/cricket.js';
+import { NEED, cricketRows, drawCricketNumbers } from './rules/cricket.js';
 import { drawGrid } from './rules/ttt.js';
 import { ROUTE, hareTarget } from './rules/hare.js';
 import { golfHole, golfTarget } from './rules/golf.js';
@@ -265,7 +265,7 @@ function boardKnockout(st) {
       cls: out ? 'out' : '',
       body: `<div class="p-rem">${last ? last.points : '–'}<span class="p-unit">zuletzt</span></div>
       ${pips(st.cfg.lives, leg.lives[p])}
-      <div class="p-meta"><span>Ø Aufnahme <b>${num(matchLine(st, p).ppr)}</b></span><span>Striche <b>${st.cfg.lives - leg.lives[p]}</b></span></div>
+      <div class="p-meta"><span>Ø Runde <b>${num(matchLine(st, p).ppr)}</b></span><span>Striche <b>${st.cfg.lives - leg.lives[p]}</b></span></div>
       ${out ? '<div class="p-note">Raus</div>' : ''}`,
     };
   });
@@ -304,7 +304,7 @@ function boardJdc(st) {
     return {
       cls: leg.contenders && !leg.contenders.includes(p) ? 'out' : '',
       body: `<div class="p-rem">${leg.score[p]}</div>
-      <div class="p-meta"><span>Teil <b>${done ? '✓' : v.part || 'Stechen'}</b></span><span>Ziel <b>${done ? '–' : jdcVisitLabel(v)}</b></span><span>Aufnahme <b>${Math.min(leg.rounds[p] + 1, leg.stage)}/${leg.stage}</b></span></div>
+      <div class="p-meta"><span>Teil <b>${done ? '✓' : v.part || 'Stechen'}</b></span><span>Ziel <b>${done ? '–' : jdcVisitLabel(v)}</b></span><span>Runde <b>${Math.min(leg.rounds[p] + 1, leg.stage)}/${leg.stage}</b></span></div>
       <div class="p-meta"><span>Teil 1 <b>${leg.parts[p][1]}</b></span><span>Teil 2 <b>${leg.parts[p][2]}</b></span><span>Teil 3 <b>${leg.parts[p][3]}</b></span>${st.cfg.reps === 1 ? `<span>Stufe <b>${jdcGrade(leg.score[p])}</b></span>` : ''}</div>
       ${tiebreakNote(st, p)}`,
     };
@@ -369,10 +369,18 @@ Object.assign(MODES, {
   },
   cricket: {
     label: 'Cricket', group: 'classic',
-    opts: [['variant', 'Variante', [['standard', 'Standard'], ['cutthroat', 'Cut-Throat']]]],
-    config: (s) => ({ variant: s.variant }),
+    opts: [
+      ['variant', 'Variante', [['standard', 'Standard'], ['cutthroat', 'Cut-Throat']]],
+      ['crNums', 'Zahlen', [['std', '15–20 + Bull'], ['random', 'Zufall: 6 + Bull']]],
+    ],
+    config: (s) => ({ variant: s.variant, random: s.crNums === 'random' }),
+    // Zufallszahlen beim Start auslosen. Revanche ruft prepare erneut auf und lost neu aus.
+    prepare: (cfg) => {
+      const { random, numbers, ...rest } = cfg;
+      return random ? { ...rest, random, numbers: drawCricketNumbers() } : rest;
+    },
     board: boardMarks,
-    nums: () => [20, 19, 18, 17, 16, 15],
+    nums: (st) => cricketRows(st.cfg).filter((r) => r.value && r.value !== 25).map((r) => r.value),
     turnSum: marksSum,
     homeScore: (st, p) => st.leg.score[p],
     col: ['MPR', (ml) => num(ml.mpr, 2)],
@@ -483,13 +491,13 @@ Object.assign(MODES, {
     board: boardKnockout,
     turnSum: ptsSum,
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? st.leg.lives[p] + ' ♥' : 'raus'),
-    col: ['Ø Aufnahme', (ml) => num(ml.ppr)],
-    bar: (st) => (st.turn ? (st.leg.bar === null ? 'Erste Aufnahme gibt vor' : `Zu schlagen <b>${st.leg.bar}</b>`) : ''),
+    col: ['Ø Runde', (ml) => num(ml.ppr)],
+    bar: (st) => (st.turn ? (st.leg.bar === null ? 'Erste Runde gibt vor' : `Zu schlagen <b>${st.leg.bar}</b>`) : ''),
     stats: (k, h) => `<div class="stats">
-      ${h.tile('Ø Aufnahme', num(k.ppr, 1), `${k.turns} Aufnahmen`)}
+      ${h.tile('Ø Runde', num(k.ppr, 1), `${k.turns} Runden`)}
       ${h.tile('Striche', k.strikes, `${num(k.strikesPerLeg, 1)} je Leg`)}
       ${h.matchTiles(k)}
-    </div>${h.trend(k.history, 'Ø Aufnahme', 1)}${h.recent(k.history, 'Knockout', 'Ø Aufnahme', 1)}`,
+    </div>${h.trend(k.history, 'Ø Runde', 1)}${h.recent(k.history, 'Knockout', 'Ø Runde', 1)}`,
   },
   gotcha: {
     label: 'Gotcha', group: 'party',
@@ -634,9 +642,16 @@ Object.assign(MODES, {
     label: 'Around the Clock', group: 'training',
     opts: [
       ['atcBull', 'Ziele', [[0, '1–20'], [1, '1–20 + Bull']]],
+      ['atcOrder', 'Reihenfolge', [['asc', 'Aufsteigend'], ['desc', 'Absteigend'], ['random', 'Zufällig']]],
       ['atcZone', 'Treffer', [['any', 'Jedes Feld'], ['skip', 'D/T springt'], ['double', 'Nur Doppel'], ['triple', 'Nur Triple']]],
     ],
-    config: (s) => ({ zone: s.atcZone, bull: Boolean(s.atcBull) }),
+    config: (s) => ({ zone: s.atcZone, bull: Boolean(s.atcBull), order: s.atcOrder }),
+    // Absteigend und zufällig als ausgeschriebene Zielfolge, zufällig neu ausgelost bei jeder Revanche
+    prepare: (cfg) => {
+      const { targets, ...rest } = cfg;
+      const t = atcOrder(cfg.order, cfg.bull);
+      return t ? { ...rest, targets: t } : rest;
+    },
     board: boardAtc,
     targets: (st) => { const t = st.turn && atcTargets(st.cfg)[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
     turnSum: advSum,

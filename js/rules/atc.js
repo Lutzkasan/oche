@@ -6,8 +6,11 @@
 //       skip   = jedes Feld zählt, Double springt 2 und Triple 3 Ziele weiter (nie über Bull hinweg)
 //       double = nur das Doppel zählt
 //       triple = nur das Triple zählt, Bull dann als Bull (50)
-// bull: true hängt Bull als letztes Ziel an.
-// targets: ausgeschriebene Zielfolge (Doppel-Training „zufällig"), damit das Replay deterministisch bleibt.
+// bull: true nimmt Bull als Ziel dazu.
+// order (Around the Clock, dartcounter.net): asc = 1 bis 20, Bull am Ende. desc = Bull zuerst, dann 20 bis 1.
+//       random = alle Ziele einschließlich Bull in ausgeloster Reihenfolge.
+// targets: ausgeschriebene Zielfolge (absteigend, zufällig), beim Start festgelegt, damit das Replay
+//       deterministisch bleibt. Ohne targets gilt aufsteigend (so speichern ältere Spiele).
 //
 // Doppel-Training: Around the Clock mit zone 'double' und wählbarer Reihenfolge. Eigener Modus,
 // damit Menü und Statistik ihn getrennt führen. Kennzahl: Darts je Doppel.
@@ -46,6 +49,19 @@ export function dblTargets(order, bull, rnd = Math.random) {
   return t;
 }
 
+// Zielfolge für Around the Clock nach Reihenfolge. Aufsteigend braucht keine ausgeschriebene Folge.
+export function atcOrder(order, bull, rnd = Math.random) {
+  if (order === 'desc') return [...(bull ? [25] : []), ...Array.from({ length: 20 }, (_, i) => 20 - i)];
+  if (order !== 'random') return null;
+  const t = Array.from({ length: 20 }, (_, i) => i + 1);
+  if (bull) t.push(25);
+  for (let i = t.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [t[i], t[j]] = [t[j], t[i]];
+  }
+  return t;
+}
+
 const posLeg = (cfg, n) => ({ pos: Array(n).fill(0) });
 
 // Trefferquote: Anteil der Darts, die das jeweils angepeilte Ziel getroffen haben
@@ -58,7 +74,7 @@ function hitLine(st, p) {
 export const atc = {
   id: 'atc',
   title: () => 'Around the Clock',
-  subtitle: (cfg) => ZONE[cfg.zone].label + (cfg.bull ? ' · mit Bull' : ''),
+  subtitle: (cfg) => ZONE[cfg.zone].label + (cfg.bull ? ' · mit Bull' : '') + (cfg.order === 'desc' ? ' · absteigend' : cfg.order === 'random' ? ' · zufällig' : ''),
   defaults: { zone: 'any', bull: false },
 
   initLeg: posLeg,
@@ -71,9 +87,13 @@ export const atc = {
     const target = targets[leg.pos[p]];
     const info = { pts: 0, marks: 0, bust: false, won: false, target, hit: false, adv: 0 };
     if (d.s !== target || !ZONE[cfg.zone].ok(d)) return info;
-    // Sprünge enden spätestens vor Bull, Bull muss selbst getroffen werden
-    const last = cfg.bull && target !== 25 ? targets.length - 1 : targets.length;
-    const adv = Math.min(cfg.zone === 'skip' ? d.m : 1, last - leg.pos[p]);
+    // Sprünge enden spätestens vor Bull, Bull muss selbst getroffen werden. Bull kann je nach Reihenfolge
+    // an jeder Stelle stehen, deshalb zählt der Abstand zum nächsten Bull, nicht das Ende der Folge.
+    const pos = leg.pos[p];
+    let adv = 1;
+    if (cfg.zone === 'skip' && target !== 25) {
+      while (adv < d.m && pos + adv < targets.length && targets[pos + adv] !== 25) adv++;
+    }
     leg.pos[p] += adv;
     info.hit = true;
     info.adv = adv;

@@ -1,6 +1,6 @@
 import * as db from './db.js';
 import { replay, RULES, matchLine, canStop } from './engine.js';
-import { playerStats, filterGames, rolling, hasPlay } from './stats.js';
+import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime } from './stats.js';
 import { lineChart, bindCharts, boardHeatmap, fieldLabel } from './charts.js';
 import { HELP, TERMS } from './help.js';
 import { GROUPS, setupDefaults } from './modes.js';
@@ -9,7 +9,7 @@ import {
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.5.0';
+export const APP_VERSION = '0.6.0';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
 
@@ -21,7 +21,11 @@ function loadSetup() {
   try { return { ...def, ...JSON.parse(localStorage.getItem('oche.setup') || '{}') }; } catch { return def; }
 }
 function saveSetup() { try { localStorage.setItem('oche.setup', JSON.stringify(S.setup)); } catch { /* nur Komfort */ } }
-const activePlayers = () => S.players.filter((p) => !p.archived).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+// Die eine Stelle, die entscheidet, welche Profile in Auswahllisten erscheinen (Start, Setup, Spieler, Statistik).
+// Archivierte Profile fehlen dort. Ihre Spiele und Kennzahlen bleiben, auch für die Mitspieler.
+const byName = (a, b) => a.name.localeCompare(b.name, 'de');
+const visiblePlayers = () => S.players.filter((p) => !p.archived).sort(byName);
+const archivedPlayers = () => S.players.filter((p) => p.archived).sort(byName);
 
 // ---------- Ansichten ----------
 const VIEWS = {
@@ -66,15 +70,15 @@ function viewHome() {
   const running = S.games.filter((g) => g.status === 'active').sort((a, b) => b.updatedAt - a.updatedAt);
   const recent = S.games.filter((g) => g.status === 'finished').sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 6);
   const more = Object.values(MODES).filter((u) => u.group !== 'classic').length;
-  return `<main class="home">
+  return `<main class="home"><div class="home-main">
     <header class="brand">${logo()}<div><h1>Oche</h1><span>Dart Counter</span></div></header>
     ${backupBanner()}
     <nav class="tiles">
       <button class="tile big" data-a="nav" data-v="setup"><span class="t-ico">▶</span><b>Neues Spiel</b><span>X01 · Cricket · ${more} Party- und Trainingsspiele</span></button>
-      <button class="tile" data-a="nav" data-v="players"><b>Spieler</b><span>${activePlayers().length} ${activePlayers().length === 1 ? 'Profil' : 'Profile'}</span></button>
+      <button class="tile" data-a="nav" data-v="players"><b>Spieler</b><span>${visiblePlayers().length} ${visiblePlayers().length === 1 ? 'Profil' : 'Profile'}</span></button>
       <button class="tile" data-a="nav" data-v="stats"><b>Statistik</b><span>Averages, Doppel, Trefferquoten</span></button>
       <button class="tile" data-a="nav" data-v="data"><b>Daten</b><span>Sichern · Tablet wechseln</span></button>
-    </nav>
+    </nav></div><div class="home-side">
     ${running.length ? `<section><h3 class="sec">Laufende Spiele</h3><div class="list">${running.map((g) => {
       const st = replay(g), ui = MODES[g.mode];
       return `<button class="row" data-a="resume" data-v="${g.id}">
@@ -86,24 +90,33 @@ function viewHome() {
       <div class="row static"><span class="r-main">${gameTitle(g)}</span>
       <span class="r-sub">${g.playerIds.map((id) => `<i style="--pc:${player(id).color}" class="${id === g.winnerId ? 'win' : ''}">${esc(player(id).name)}</i>`).join(' · ')}</span>
       <span class="r-date">${day(g.finishedAt)}</span></div>`).join('')}</div></section>` : ''}
-    <footer class="foot">Version ${APP_VERSION} · Build ${BUILD}</footer>
+    </div><footer class="foot">Version ${APP_VERSION} · Build ${BUILD}</footer>
   </main>`;
 }
 
 function viewPlayers() {
-  const list = activePlayers();
+  const list = visiblePlayers(), arch = archivedPlayers();
   const count = (id) => S.games.filter((g) => g.playerIds.includes(id)).length;
-  return `${topbar('Spieler')}<main class="page">
+  const games = (n) => (n === 1 ? '1 Spiel' : `${n} Spiele`);
+  return `${topbar('Spieler')}<main class="page players">
     <form class="card add-player" data-form="addPlayer">
       <input name="name" placeholder="Name" maxlength="24" autocomplete="off" required>
       <div class="swatches">${COLORS.map((c) => `<button type="button" class="sw ${c === S.newColor ? 'on' : ''}" style="--pc:${c}" data-a="pickColor" data-v="${c}" aria-label="Farbe"></button>`).join('')}</div>
       <button class="btn primary">Anlegen</button>
     </form>
-    <div class="list">${list.map((p) => `<div class="row static">
+    <div class="list cols">${list.map((p) => {
+      const n = count(p.id);
+      return `<div class="row static">
       <span class="dot" style="--pc:${p.color}"></span><span class="r-main">${esc(p.name)}</span>
-      <span class="r-sub">${count(p.id)} Spiele</span>
+      <span class="r-sub">${games(n)}</span>
       <span class="r-actions"><button class="btn sm" data-a="renamePlayer" data-v="${p.id}">Umbenennen</button>
-      <button class="btn sm ghost" data-a="removePlayer" data-v="${p.id}">Entfernen</button></span></div>`).join('') || '<p class="muted">Noch keine Spieler. Leg oben das erste Profil an.</p>'}</div>
+      <button class="btn sm ghost" data-a="removePlayer" data-v="${p.id}">${n ? 'Archivieren' : 'Löschen'}</button></span></div>`;
+    }).join('') || '<p class="muted">Noch keine Spieler. Leg oben das erste Profil an.</p>'}</div>
+    ${arch.length ? `<section><h3 class="sec">Archiviert <small>nicht in Spielerauswahl und Statistik, Spiele bleiben erhalten</small></h3>
+    <div class="list cols">${arch.map((p) => `<div class="row static archived">
+      <span class="dot" style="--pc:${p.color}"></span><span class="r-main">${esc(p.name)}</span>
+      <span class="r-sub">${games(count(p.id))}</span>
+      <span class="r-actions"><button class="btn sm" data-a="restorePlayer" data-v="${p.id}">Zurückholen</button></span></div>`).join('')}</div></section>` : ''}
   </main>`;
 }
 
@@ -122,19 +135,19 @@ function viewSetup() {
   const n = s.players.length;
   const why = n && n < minP ? `${ui.label} braucht mindestens ${minP} Spieler.` : n > maxP ? `${ui.label} geht mit höchstens ${maxP} Spielern.` : '';
   return `${topbar('Neues Spiel')}<main class="page setup">
-    <section class="card"><label>Spiel</label>${modeGrid(s.mode)}</section>
-    <section class="card">
+    <section class="card modes"><label>Spiel</label>${modeGrid(s.mode)}</section>
+    <div class="setup-side"><section class="card">
       <div class="opt-head"><h3>${esc(ui.label)}</h3><button class="btn sm" data-a="help" data-v="${s.mode}">Regeln</button></div>
       ${ui.opts.map(([k, label, choices]) => `<label>${label}</label>${seg(k, choices)}`).join('')}
       <div class="two"><div><label>Legs</label>${stepper('legs', 1, 11, (v) => `First to ${v}`)}</div>
       <div><label>Sets</label>${stepper('sets', 1, 7, (v) => (v === 1 ? 'Ohne Sets' : `First to ${v}`))}</div></div></section>
     <section class="card"><label>Spieler <small>in Wurfreihenfolge antippen${maxP < Infinity ? ` · höchstens ${maxP}` : ''}</small></label>
-      <div class="chips">${activePlayers().map((p) => {
+      <div class="chips">${visiblePlayers().map((p) => {
         const i = s.players.indexOf(p.id);
         return `<button class="chip ${i >= 0 ? 'on' : ''}" style="--pc:${p.color}" data-a="togglePlayer" data-v="${p.id}">${i >= 0 ? `<em>${i + 1}</em>` : ''}${esc(p.name)}</button>`;
       }).join('')}<button class="chip add" data-a="quickPlayer">+ Neuer Spieler</button></div></section>
     <button class="btn primary xl" data-a="start" ${n >= minP && n <= maxP ? '' : 'disabled'}>Spiel starten</button>
-    ${why ? `<p class="muted hint center">${why}</p>` : ''}
+    ${why ? `<p class="muted hint center">${why}</p>` : ''}</div>
   </main>`;
 }
 
@@ -143,11 +156,11 @@ function helpHtml(mode, cfg) {
   const h = HELP[mode], ui = MODES[mode];
   const opts = ui.opts.filter(([k]) => h.opts[k]).map(([k, label, choices]) => `<dt>${label} <small>${choices.map(([, t]) => t).join(' · ')}</small></dt><dd>${h.opts[k]}</dd>`).join('');
   const text = [h.goal, h.turn, h.score, h.win, h.example, ...Object.values(h.opts)].join(' ');
-  const terms = Object.entries(TERMS).filter(([t]) => new RegExp(`\\b${t}`, 'i').test(text) || t === 'Aufnahme' || t === 'Leg');
+  const terms = Object.entries(TERMS).filter(([t]) => new RegExp(`\\b${t}`, 'i').test(text) || t === 'Runde' || t === 'Leg');
   return `<div class="help">
     ${cfg ? `<p class="h-cfg">Eingestellt: ${esc(RULES[mode].subtitle(cfg))}</p>` : ''}
     <h4>Ziel</h4><p>${h.goal}</p>
-    <h4>So läuft eine Aufnahme</h4><p>${h.turn}</p>
+    <h4>So läuft eine Runde</h4><p>${h.turn}</p>
     <h4>Wertung</h4><p>${h.score}</p>
     <h4>Sieg</h4><p>${h.win}</p>
     ${opts ? `<h4>Einstellungen</h4><dl>${opts}</dl>` : ''}
@@ -220,10 +233,11 @@ function viewGame() {
 }
 
 // ---------- Statistik ----------
-const RANGES = [['7', '7 Tage'], ['30', '30 Tage'], ['90', '90 Tage'], ['365', '1 Jahr'], ['all', 'Alles']];
+const RANGES = [['7', '7 Tage'], ['30', '30 Tage'], ['90', '90 Tage'], ['365', '1 Jahr'], ['all', 'Alles'], ['custom', 'Von – Bis']];
+const isoDay = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 function loadStatsFilter() {
-  const def = { days: null, mode: 'all' };
+  const def = { days: null, mode: 'all', custom: false, from: isoDay(Date.now() - 30 * 864e5), to: isoDay(Date.now()) };
   try { return { ...def, ...JSON.parse(localStorage.getItem('oche.statsFilter') || '{}') }; } catch { return def; }
 }
 function saveStatsFilter() { try { localStorage.setItem('oche.statsFilter', JSON.stringify(S.statsFilter)); } catch { /* nur Komfort */ } }
@@ -244,8 +258,27 @@ function filterBar(playerGames) {
     return html ? `<optgroup label="${title}">${html}</optgroup>` : '';
   }).join('');
   const segs = (opts, cur, a) => `<div class="seg">${opts.map(([v, l]) => `<button class="${String(cur) === v ? 'on' : ''}" data-a="${a}" data-v="${v}">${l}</button>`).join('')}</div>`;
-  return `<div class="filters">${segs(RANGES, F.days ?? 'all', 'statsRange')}
+  const range = F.custom ? 'custom' : F.days ?? 'all';
+  return `<div class="filters">${segs(RANGES, range, 'statsRange')}
+    ${F.custom ? `<div class="dates"><label><span>Von</span><input type="date" value="${esc(F.from)}" max="${isoDay(Date.now())}" data-change="statsFrom"></label>
+      <label><span>Bis</span><input type="date" value="${esc(F.to)}" max="${isoDay(Date.now())}" data-change="statsTo"></label></div>` : ''}
     <label class="select"><span>Spiel</span><select data-change="statsMode">${opt('all', 'Alle Spiele')}${groups}</select></label></div>`;
+}
+
+// Spiele im Filter, auch die nicht gewerteten. Hier nimmt man ein Spiel aus der Wertung oder holt es zurück.
+// Grundlage ist hasDarts statt hasPlay, sonst verschwände ein ausgenommenes Spiel und ließe sich nicht zurückholen.
+function gamesSection(games) {
+  const list = games.filter((g) => hasDarts(g, S.statsFor)).sort((a, b) => gameTime(b) - gameTime(a));
+  if (!list.length) return '';
+  const shown = S.allGames ? list : list.slice(0, 8);
+  const off = list.filter((g) => g.excluded).length;
+  return `<h3 class="sec">Spiele <small>${list.length} im Filter${off ? `, ${off} nicht gewertet` : ''}</small></h3>
+    <div class="list games-list">${shown.map((g) => `<div class="row static ${g.excluded ? 'excluded' : ''}">
+      <span class="r-main">${gameTitle(g)}</span>
+      <span class="r-sub">${g.playerIds.map((id) => `<i style="--pc:${player(id).color}" class="${id === g.winnerId ? 'win' : ''}">${esc(player(id).name)}</i>`).join(' · ')}
+        <em>${day(gameTime(g))}${g.status === 'active' ? ' · läuft' : ''}${g.excluded ? ' · nicht gewertet' : ''}</em></span>
+      <span class="r-actions"><button class="btn sm ${g.excluded ? 'primary' : 'ghost'}" data-a="toggleExclude" data-v="${g.id}">${g.excluded ? 'Wieder werten' : 'Nicht werten'}</button></span></div>`).join('')}</div>
+    ${list.length > shown.length || S.allGames ? `<button class="btn sm ghost more" data-a="allGames">${S.allGames ? 'Weniger zeigen' : `Alle ${list.length} zeigen`}</button>` : ''}`;
 }
 
 function trend(history, label, decimals) {
@@ -282,7 +315,7 @@ const STATS_H = {
 };
 
 function viewStats() {
-  const list = S.players.filter((p) => !p.archived || S.games.some((g) => g.playerIds.includes(p.id)));
+  const list = visiblePlayers();
   if (!S.statsFor || !list.some((p) => p.id === S.statsFor)) S.statsFor = list[0]?.id;
   if (!S.statsFor) return `${topbar('Statistik')}<main class="page"><p class="muted">Noch keine Spieler.</p></main>`;
   const F = S.statsFilter;
@@ -291,13 +324,17 @@ function viewStats() {
   const head = `${topbar('Statistik')}<main class="page" style="--pc:${player(S.statsFor).color}">
     <div class="chips">${list.map((p) => `<button class="chip ${p.id === S.statsFor ? 'on' : ''}" style="--pc:${p.color}" data-a="statsFor" data-v="${p.id}">${esc(p.name)}</button>`).join('')}</div>
     ${filterBar(playerGames)}`;
-  if (!games.some((g) => hasPlay(g, S.statsFor))) return `${head}<p class="muted">Keine Spiele in diesem Zeitraum und Modus.</p></main>`;
+  if (!games.some((g) => hasPlay(g, S.statsFor))) {
+    const any = games.some((g) => hasDarts(g, S.statsFor));
+    return `${head}<p class="muted">${any ? 'Alle Spiele in diesem Zeitraum und Modus sind von der Wertung ausgenommen.' : 'Keine Spiele in diesem Zeitraum und Modus.'}</p>${gamesSection(games)}</main>`;
+  }
   const R = playerStats(S.statsFor, games);
   // Abschnitt zeigen, wenn der Filter genau diesen Modus wählt, oder bei „Alle", sobald es Darts gibt
   const show = (id) => F.mode === id || (id === 'x01' && /^\d+$/.test(F.mode)) || (F.mode === 'all' && R[id].darts > 0);
   return `${head}
-    ${Object.entries(MODES).filter(([m]) => show(m)).map(([m, u]) => `<h3 class="sec">${esc(u.label)}</h3>${u.stats(R[m], STATS_H)}`).join('')}
+    ${Object.entries(MODES).filter(([m]) => show(m)).map(([m, u]) => `<section class="mstats"><h3 class="sec">${esc(u.label)}</h3>${u.stats(R[m], STATS_H)}</section>`).join('')}
     ${heatSection(R.board)}
+    ${gamesSection(games)}
   </main>`;
 }
 
@@ -311,14 +348,14 @@ function viewData() {
     <section class="card">
       <h3>Sichern</h3>
       <p class="muted">${S.players.length} Spieler · ${finished} beendete Spiele · Letzte Sicherung: ${S.lastExport ? day(S.lastExport) : 'nie'}</p>
-      <p>Die Sicherung enthält jeden einzelnen Dart. Leg sie in Google Drive ab, dann ist sie auch bei Verlust des Tablets da.</p>
-      <div class="btn-row"><button class="btn primary" data-a="exportShare">Teilen (z. B. Google Drive)</button>
+      <p>Die Sicherung enthält jeden einzelnen Dart. Schick sie dir per Mail oder WhatsApp oder leg sie in Google Drive ab, dann ist sie auch bei Verlust des Tablets da.</p>
+      <div class="btn-row"><button class="btn primary" data-a="exportShare">Teilen (Mail, WhatsApp, Drive …)</button>
       <button class="btn" data-a="exportFile">Als Datei speichern</button></div>
     </section>
     <section class="card">
       <h3>Wiederherstellen / Tablet wechseln</h3>
-      <p>Auf dem neuen Tablet die App installieren, hier die Sicherungsdatei wählen. Vorhandene Daten bleiben erhalten. Gleiche Spiele werden nicht doppelt angelegt.</p>
-      <label class="btn file">Sicherung importieren<input type="file" accept="application/json,.json" data-change="import" hidden></label>
+      <p>Auf dem neuen Tablet die App installieren, hier die Sicherungsdatei wählen (.txt aus „Teilen" oder .json aus „Als Datei speichern"). Vorhandene Daten bleiben erhalten. Gleiche Spiele werden nicht doppelt angelegt.</p>
+      <label class="btn file">Sicherung importieren<input type="file" accept="application/json,.json,text/plain,.txt" data-change="import" hidden></label>
     </section>
     <section class="card"><h3>Speicher</h3><p class="muted">${persistText}</p></section>
     <footer class="foot">Oche ${APP_VERSION} · Build ${BUILD}</footer>
@@ -415,6 +452,14 @@ function persist(store, obj) {
   db.put(store, obj).catch((e) => toast('Speichern fehlgeschlagen: ' + e.message));
 }
 
+// Umkehrbares Kennzeichen (archived, excluded). Das neue updatedAt sorgt dafür, dass der Import-Merge diesen
+// Stand gegen jede ältere Sicherung behält. Archivieren und Ausnehmen laufen beide hierüber.
+function setFlag(store, obj, key, on) {
+  obj[key] = on;
+  obj.updatedAt = Date.now();
+  persist(store, obj);
+}
+
 function addPlayer(name, color) {
   const now = Date.now();
   const p = { id: uid(), name, color, archived: false, createdAt: now, updatedAt: now };
@@ -423,15 +468,20 @@ function addPlayer(name, color) {
   return p;
 }
 
+// Chrome teilt nur Dateien, deren Endung und Typ auf seiner Freigabeliste stehen. .json und application/json
+// fehlen dort, .txt und text/plain sind erlaubt. Mit .json lehnte navigator.canShare jede Sicherung ab, und
+// „Teilen" speicherte stillschweigend nur eine Datei. Deshalb geht die Sicherung zum Teilen als .txt hinaus.
+// Der Inhalt ist dasselbe JSON, der Import liest beide Endungen.
 async function doExport(share) {
   const data = await db.exportAll();
-  const name = `oche-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
-  const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
+  const base = `oche-sicherung-${isoDay(Date.now())}`;
+  const json = JSON.stringify(data);
+  const file = share ? new File([json], base + '.txt', { type: 'text/plain' }) : new File([json], base + '.json', { type: 'application/json' });
   if (share && navigator.canShare?.({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: name }); }
-    catch (e) { if (e.name === 'AbortError') return; toast('Teilen fehlgeschlagen. Ich speichere stattdessen als Datei.'); download(file); }
+    try { await navigator.share({ files: [file], title: 'Oche-Sicherung', text: `Oche-Sicherung vom ${day(Date.now())}` }); }
+    catch (e) { if (e.name === 'AbortError') return; toast('Teilen fehlgeschlagen. Die Sicherung wird stattdessen als Datei gespeichert.'); download(file); }
   } else {
-    if (share) toast('Teilen wird hier nicht unterstützt. Datei wird gespeichert.');
+    if (share) toast('Dieser Browser kann keine Dateien teilen. Die Sicherung wird als Datei gespeichert.');
     download(file);
   }
   S.lastExport = Date.now();
@@ -473,19 +523,33 @@ const A = {
     p.name = r.value; p.updatedAt = Date.now();
     render(); persist('players', p);
   },
+  // Profil mit Spielen: archivieren (umkehrbar, alle Spiele bleiben, auch für Mitspieler).
+  // Profil ohne Spiele: löschen. Gelöscht wird über einen Lösch-Vermerk, damit eine ältere Sicherung es nicht zurückbringt.
   removePlayer: async (id) => {
     const p = player(id);
     const used = S.games.some((g) => g.playerIds.includes(id));
     const r = await dialog({
-      title: `${p.name} entfernen?`,
-      text: used ? 'Die Spiele und Statistiken bleiben erhalten. Das Profil erscheint nur nicht mehr bei der Spielerauswahl.' : 'Das Profil hat keine Spiele und wird gelöscht.',
-      buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Entfernen', value: 'ok', danger: true }],
+      title: used ? `${p.name} archivieren?` : `${p.name} löschen?`,
+      text: used ? 'Das Profil verschwindet aus Spielerauswahl und Statistik. Alle Spiele bleiben erhalten, auch in der Statistik der Mitspieler. Unter „Archiviert" holst du es jederzeit zurück.' : 'Das Profil hat keine Spiele und wird gelöscht.',
+      buttons: [{ label: 'Abbrechen', value: 'x' }, { label: used ? 'Archivieren' : 'Löschen', value: 'ok', danger: true }],
     });
     if (r.btn !== 'ok') return;
-    if (used) { p.archived = true; p.updatedAt = Date.now(); persist('players', p); }
-    else { S.players = S.players.filter((x) => x.id !== id); db.del('players', id).catch((e) => toast(e.message)); }
+    S.setup.players = S.setup.players.filter((x) => x !== id);
+    saveSetup();
+    if (used) setFlag('players', p, 'archived', true);
+    else { S.players = S.players.filter((x) => x.id !== id); db.remove('players', id).catch((e) => toast('Löschen fehlgeschlagen: ' + e.message)); }
     render();
   },
+  restorePlayer: (id) => { setFlag('players', player(id), 'archived', false); render(); },
+  // Spiel aus der Wertung nehmen oder zurückholen. Gilt für alle Spieler des Spiels.
+  toggleExclude: (id) => {
+    const g = S.games.find((x) => x.id === id);
+    if (!g) return;
+    setFlag('games', g, 'excluded', !g.excluded);
+    toast(g.excluded ? 'Spiel zählt nicht mehr, für alle Spieler.' : 'Spiel zählt wieder.');
+    render();
+  },
+  allGames: () => { S.allGames = !S.allGames; render(); },
   start: () => {
     const s = S.setup;
     startGame(s.mode, { ...MODES[s.mode].config(s), legs: s.legs, sets: s.sets }, [...s.players]);
@@ -531,13 +595,18 @@ const A = {
     if (r.btn === 'del') {
       const c = await dialog({ title: 'Spiel wirklich löschen?', text: 'Alle Würfe dieses Spiels verschwinden auch aus der Statistik.', buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Löschen', value: 'ok', danger: true }] });
       if (c.btn !== 'ok') return;
-      await db.del('games', S.game.id);
+      await db.remove('games', S.game.id);
       S.games = S.games.filter((g) => g.id !== S.game.id);
       S.game = null; A.nav('home');
     }
   },
-  statsFor: (id) => { S.statsFor = id; S.heatSel = null; render(); },
-  statsRange: (v) => { S.statsFilter.days = v === 'all' ? null : Number(v); saveStatsFilter(); render(); },
+  statsFor: (id) => { S.statsFor = id; S.heatSel = null; S.allGames = false; render(); },
+  statsRange: (v) => {
+    const F = S.statsFilter;
+    F.custom = v === 'custom';
+    if (!F.custom) F.days = v === 'all' ? null : Number(v);
+    saveStatsFilter(); render();
+  },
   heatPick: (v) => { S.heatSel = v; render(); },
   exportShare: () => doExport(true),
   exportFile: () => doExport(false),
@@ -563,6 +632,10 @@ document.addEventListener('submit', async (e) => {
 document.addEventListener('change', async (e) => {
   const what = e.target.dataset.change;
   if (what === 'statsMode') { S.statsFilter.mode = e.target.value; saveStatsFilter(); render(); return; }
+  if (what === 'statsFrom' || what === 'statsTo') {
+    if (e.target.value) S.statsFilter[what === 'statsFrom' ? 'from' : 'to'] = e.target.value;
+    saveStatsFilter(); render(); return;
+  }
   if (what !== 'import') return;
   const file = e.target.files[0];
   if (!file) return;
@@ -570,7 +643,7 @@ document.addEventListener('change', async (e) => {
     const counts = await db.importAll(JSON.parse(await file.text()));
     await loadAll();
     render();
-    dialog({ title: 'Import abgeschlossen', text: `${counts.players} Spieler und ${counts.games} Spiele übernommen oder aktualisiert.` });
+    dialog({ title: 'Import abgeschlossen', text: `${counts.players} Spieler und ${counts.games} Spiele übernommen oder aktualisiert.${counts.removed ? ` ${counts.removed} gelöschte Einträge entfernt.` : ''}` });
   } catch (err) {
     dialog({ title: 'Import fehlgeschlagen', text: esc(err.message) });
   }
@@ -588,7 +661,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 // ---------- Start ----------
 async function loadAll() {
-  [S.players, S.games] = await Promise.all([db.getAll('players'), db.getAll('games')]);
+  [S.players, S.games] = await Promise.all([db.getLive('players'), db.getLive('games')]);
   S.lastExport = (await db.getMeta('lastExport')) || null;
 }
 

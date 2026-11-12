@@ -1,9 +1,9 @@
-// Spielerklärungen für alle Modi. Eine Stelle je Modus: Ziel, Ablauf einer Aufnahme, Wertung, Sieg,
+// Spielerklärungen für alle Modi. Eine Stelle je Modus: Ziel, Ablauf einer Runde, Wertung, Sieg,
 // Bedeutung jeder Setup-Option (Schlüssel wie in modes.js) und ein kurzes Beispiel.
 // Fachbegriffe erklärt TERMS. Die App hängt an jede Erklärung die Begriffe an, die darin vorkommen.
 
 export const TERMS = {
-  Aufnahme: 'Deine drei Darts hintereinander. Danach ist der Nächste dran.',
+  Runde: 'Deine drei Darts hintereinander. Danach ist der Nächste dran. Im Turnierdarts heißt das „Aufnahme".',
   Leg: 'Ein einzelnes Spiel. Wer es gewinnt, bekommt ein Leg. „First to 3" heißt: Wer zuerst 3 Legs hat, gewinnt das Match.',
   Set: 'Mehrere Legs bilden ein Set. Mit Sets gewinnt, wer zuerst die eingestellte Zahl Sets hat.',
   Single: 'Das breite Feld einer Zahl. Es zählt einfach.',
@@ -11,10 +11,10 @@ export const TERMS = {
   Doppel: 'Der äußere schmale Ring. Er zählt doppelt. Bull (50) gilt auch als Doppel.',
   Triple: 'Der innere schmale Ring. Er zählt dreifach.',
   Bull: 'Der innere Punkt in der Mitte, 50 Punkte. Der grüne Ring darum heißt 25.',
-  Bust: 'Überworfen. Die ganze Aufnahme zählt nicht, dein Stand springt auf den Wert davor zurück.',
+  Bust: 'Überworfen. Die ganze Runde zählt nicht, dein Stand springt auf den Wert davor zurück.',
   Checkout: 'Das Beenden mit dem letzten nötigen Dart, meist auf ein Doppel. „Checken" heißt genau auf 0 kommen.',
   Marks: 'Treffer, die ein Feld schließen. Single bringt 1 Mark, Double 2, Triple 3.',
-  MPR: 'Marks pro Runde: Schnitt deiner Marks je Aufnahme.',
+  MPR: 'Marks pro Runde: Schnitt deiner Marks je Runde.',
   Stechen: 'Entscheidung bei Gleichstand. Nur die Punktgleichen werfen weiter, bis einer vorn liegt.',
 };
 
@@ -32,12 +32,13 @@ export const HELP = {
     example: 'Du hast noch 40 bei Double Out. D20 gewinnt das Leg. 20 und dann D10 auch. Triffst du 20 und 19, bleibt 1: Bust, du stehst wieder bei 40.',
   },
   cricket: {
-    goal: 'Schließe die Felder 15 bis 20 und Bull und hol dabei mehr Punkte als dein Gegner.',
-    turn: 'Drei Darts. Treffer auf 15 bis 20 oder Bull bringen Marks: Single 1, Double 2, Triple 3. 25 bringt 1 Mark, Bull 2.',
+    goal: 'Schließe die Felder 15 bis 20 und Bull und hol dabei mehr Punkte als dein Gegner. Mit Zufall spielst du sechs ausgeloste Zahlen statt 15 bis 20.',
+    turn: 'Drei Darts. Treffer auf die Spielfelder bringen Marks: Single 1, Double 2, Triple 3. 25 bringt 1 Mark, Bull 2.',
     score: 'Mit drei Marks ist ein Feld zu. Weitere Treffer darauf zählen den Feldwert als Punkte, solange ein Gegner das Feld offen hat. Haben alle ein Feld zu, ist es tot.',
     win: 'Wer alle Felder zu hat und mindestens so viele Punkte wie jeder Gegner, gewinnt das Leg.',
     opts: {
       variant: 'Standard: Überzählige Treffer zählen für dich, die höchste Punktzahl gewinnt. Cut-Throat: Überzählige Treffer geben jedem Gegner mit offenem Feld Punkte. Dann gewinnt die niedrigste Punktzahl.',
+      crNums: '15–20 + Bull: die üblichen Felder. Zufall: Beim Start werden sechs Zahlen aus 1 bis 20 ausgelost, Bull kommt immer dazu (so spielen es DARTSLIVE-Automaten als „Random Cricket"). Sonst gelten alle Regeln wie oben. Die Revanche lost neu aus. Kombinierbar mit Cut-Throat.',
     },
     example: 'Deine 20 ist zu, die deines Gegners nicht. Du triffst T20: 60 Punkte für dich. Bei Cut-Throat bekommt er die 60.',
   },
@@ -66,7 +67,7 @@ export const HELP = {
   },
   ttt: {
     goal: 'Hol dir drei Felder in einer Reihe: waagrecht, senkrecht oder diagonal.',
-    turn: 'Das Raster hat neun Felder. In der Mitte steht Bull, außen acht beim Start ausgeloste Zahlen. In deiner Aufnahme nimmst du Felder, indem du ihre Zahl triffst.',
+    turn: 'Das Raster hat neun Felder. In der Mitte steht Bull, außen acht beim Start ausgeloste Zahlen. In deiner Runde nimmst du Felder, indem du ihre Zahl triffst.',
     score: 'Ein genommenes Feld gehört dir für das ganze Leg. Treffer auf besetzte Felder zählen nicht. Genau zwei Spieler.',
     win: 'Drei in einer Reihe gewinnt sofort. Ist das Raster voll ohne Reihe, gewinnt, wer mehr Felder hat.',
     opts: {
@@ -89,19 +90,19 @@ export const HELP = {
   follow: {
     goal: 'Triff das Feld, das dir vorgegeben wird, und gib den anderen schwere Felder vor.',
     turn: 'Das Ziel ist ein genaues Feld, zum Beispiel T20 oder D5. Du hast drei Darts, um es zu treffen. Danach legt dein letzter Dart das Ziel für den Nächsten fest. Mit „Fertig" hörst du nach dem festlegenden Dart auf.',
-    score: 'Triffst du das Ziel nicht, verlierst du ein Leben. Triffst du erst mit dem dritten Dart, bekommst du eine Extra-Aufnahme zum Festlegen. Landet dein festlegender Dart daneben, kostet das ein Leben und der Nächste legt neu fest. Kommt dein eigenes Ziel zu dir zurück, darfst du passen: Ein Fehlwurf kostet dann nichts.',
+    score: 'Triffst du das Ziel nicht, verlierst du ein Leben. Triffst du erst mit dem dritten Dart, bekommst du eine Extra-Runde zum Festlegen. Landet dein festlegender Dart daneben, kostet das ein Leben und der Nächste legt neu fest. Kommt dein eigenes Ziel zu dir zurück, darfst du passen: Ein Fehlwurf kostet dann nichts.',
     win: 'Wer keine Leben mehr hat, ist raus. Der Letzte gewinnt.',
     opts: { flLives: 'Wie viele Leben jeder hat.' },
     example: 'Anna legt T20 vor. Ben trifft T20 mit dem ersten Dart, wirft dann D5 und drückt „Fertig". Jetzt muss Carla D5 treffen. Single innen und außen kann die App nicht unterscheiden, beide zählen als dasselbe Feld.',
   },
   knockout: {
-    goal: 'Übertriff mit jeder Aufnahme die Vorgabe.',
-    turn: 'Drei Darts, die Punkte zählen wie in X01. Die erste Aufnahme im Leg gibt nur die Vorgabe.',
+    goal: 'Übertriff mit jeder Runde die Vorgabe.',
+    turn: 'Drei Darts, die Punkte zählen wie in X01. Die erste Runde im Leg gibt nur die Vorgabe.',
     score: 'Wer die Vorgabe nicht übertrifft, bekommt einen Strich. Gleich viele Punkte reichen nicht.',
     win: 'Mit der eingestellten Zahl Striche bist du raus. Der Letzte gewinnt.',
     opts: {
       koLives: 'Nach wie vielen Strichen du raus bist.',
-      koBar: 'Vorwerfer: Du musst die Aufnahme direkt vor dir schlagen, auch eine schwache. Höchstwert: Du musst die beste Aufnahme des Legs schlagen.',
+      koBar: 'Vorwerfer: Du musst die Runde direkt vor dir schlagen, auch eine schwache. Höchstwert: Du musst die beste Runde des Legs schlagen.',
     },
     example: 'Dein Vorwerfer hat 45. Mit 45 bekommst du einen Strich, mit 46 bist du durch. Dann muss der Nächste 46 schlagen.',
   },
@@ -112,7 +113,7 @@ export const HELP = {
     win: 'Wer genau das Ziel erreicht, gewinnt.',
     opts: {
       goGoal: 'Die Punktzahl, die du genau treffen musst.',
-      goOver: 'Bust: Die Aufnahme zählt nicht, du stehst wieder beim Wert davor. Ein Gegner, den du in dieser Aufnahme schon auf 0 gesetzt hast, bleibt bei 0. Rest zurück: Was du zu viel hast, geht vom Ziel ab, und du wirfst weiter.',
+      goOver: 'Bust: Die Runde zählt nicht, du stehst wieder beim Wert davor. Ein Gegner, den du in dieser Runde schon auf 0 gesetzt hast, bleibt bei 0. Rest zurück: Was du zu viel hast, geht vom Ziel ab, und du wirfst weiter.',
       goOut: 'Beliebig: Jeder Dart darf beenden. Doppel: Der letzte Dart muss ein Doppel sein.',
     },
     example: 'Du hast 120, dein Gegner 140. Du triffst 20: Gotcha, er fällt auf 0.',
@@ -133,14 +134,14 @@ export const HELP = {
     goal: 'Triff 1 bis 9 und Bull je dreimal.',
     turn: 'Drei Darts. Single bringt 1 Mark, Double 2, Triple 3. Bei Bull zählen 25 und Bull je 1 Mark. Andere Zahlen zählen nicht.',
     score: 'Hast du ein Feld schon zu, gehen überzählige Marks an einen Gegner, der das Feld noch braucht. Damit hilfst du ihm. Wirf also genau.',
-    win: 'Wer zuerst alle Felder zu hat, gewinnt. Macht dein Geschenk einen Gegner fertig, gewinnt er. Schließt du in derselben Aufnahme selbst alles, gewinnst du.',
+    win: 'Wer zuerst alle Felder zu hat, gewinnt. Macht dein Geschenk einen Gegner fertig, gewinnt er. Schließt du in derselben Runde selbst alles, gewinnst du.',
     opts: { shBull: 'Mit Bull: Bull ist das zehnte Feld. Ohne Bull: nur 1 bis 9.' },
     example: 'Deine 3 ist zu. Du triffst T3: Dein Gegner bekommt drei Marks auf die 3.',
   },
   shanghai: {
     goal: 'Hol in festen Runden möglichst viele Punkte.',
     turn: 'Runde 1 zählt nur die 1, Runde 2 nur die 2 und so weiter. Treffer zählen ihren Feldwert.',
-    score: 'Single, Double und Triple der Rundenzahl in einer Aufnahme heißen Shanghai.',
+    score: 'Single, Double und Triple der Zielzahl in derselben Runde heißen Shanghai.',
     win: 'Nach der letzten Runde gewinnt die höchste Punktzahl. Bei Gleichstand gibt es ein Stechen auf die nächste Zahl.',
     opts: {
       shRounds: 'Bis zu welcher Zahl gespielt wird.',
@@ -169,7 +170,7 @@ export const HELP = {
   },
   golf: {
     goal: 'Spiel 9 oder 18 Löcher mit möglichst wenigen Schlägen.',
-    turn: 'Loch 1 ist die 1, Loch 2 die 2 und so weiter. Eine Aufnahme spielt ein Loch.',
+    turn: 'Loch 1 ist die 1, Loch 2 die 2 und so weiter. Eine Runde spielt ein Loch.',
     score: 'Jeder Dart ergibt Schläge: Doppel 1 (Hole in One), Triple 2, Single 3, verfehlt 5. Ein Doppel beendet das Loch sofort.',
     win: 'Nach dem letzten Loch gewinnt die kleinste Summe. Bei Gleichstand gibt es ein Stechen auf den nächsten Löchern: 19, 20, dann Bull.',
     opts: {
@@ -182,19 +183,20 @@ export const HELP = {
   ninelives: {
     goal: 'Triff 1 bis 20 der Reihe nach, bevor deine Leben ausgehen.',
     turn: 'Drei Darts. Jeder Treffer aufs Ziel bringt dich zur nächsten Zahl.',
-    score: 'Triffst du in einer Aufnahme gar nicht, verlierst du ein Leben. Double und Triple bringen nichts extra.',
+    score: 'Triffst du in einer Runde gar nicht, verlierst du ein Leben. Double und Triple bringen nichts extra.',
     win: 'Wer zuerst die 20 trifft, gewinnt. Bleibt nur einer mit Leben übrig, gewinnt er.',
     opts: { nlLives: '3: so spielen es die meisten Regeln. 9: wie der Name sagt.' },
     example: 'Du stehst auf 6 und triffst 6 und 7. Weiter geht es mit der 8.',
   },
   atc: {
-    goal: 'Triff die Zahlen 1 bis 20 der Reihe nach.',
-    turn: 'Drei Darts auf deine aktuelle Zahl. Jeder Treffer bringt dich zur nächsten, auch mehrmals in einer Aufnahme.',
+    goal: 'Triff die Zahlen 1 bis 20 der Reihe nach, auf Wunsch absteigend oder in zufälliger Reihenfolge.',
+    turn: 'Drei Darts auf deine aktuelle Zahl. Jeder Treffer bringt dich zur nächsten, auch mehrmals in einer Runde.',
     score: 'Andere Zahlen zählen nicht. Das Tastenfeld hebt dein Ziel in deiner Farbe hervor.',
     win: 'Wer zuerst durch ist, gewinnt das Leg. Allein spielst du auf möglichst wenige Darts.',
     opts: {
-      atcBull: 'Mit Bull musst du zum Schluss noch das Bull treffen.',
-      atcZone: 'Jedes Feld: Single, Double und Triple zählen gleich. D/T springt: Double bringt dich zwei Zahlen weiter, Triple drei. Bull musst du trotzdem selbst treffen. Nur Doppel bzw. Nur Triple: Nur dieser Ring zählt, am Ende nur das Bull.',
+      atcBull: 'Mit Bull musst du zusätzlich das Bull treffen, aufsteigend als letztes Ziel.',
+      atcOrder: 'Aufsteigend: 1 bis 20, dann Bull. Absteigend: erst Bull, dann 20 bis 1. Zufällig: Alle Ziele kommen in einer beim Start ausgelosten Reihenfolge, Bull irgendwo dazwischen. Die Revanche lost neu aus. Das Brett zeigt die Folge.',
+      atcZone: 'Jedes Feld: Single, Double und Triple zählen gleich. D/T springt: Double bringt dich zwei Ziele weiter, Triple drei. Über Bull springst du nicht hinweg, Bull musst du selbst treffen. Nur Doppel bzw. Nur Triple: Nur dieser Ring zählt, beim Bull nur das Bull.',
     },
     example: 'Du stehst auf 5. Mit „D/T springt" bringt dich T5 auf die 8.',
   },
@@ -243,7 +245,7 @@ export const HELP = {
   },
   gallery: {
     goal: 'Checke 121 bis 130 nacheinander mit möglichst wenigen Darts.',
-    turn: 'Für jede Zahl hast du höchstens 9 Darts, also 3 Aufnahmen. Du zählst wie in X01 herunter und musst mit einem Doppel genau auf 0.',
+    turn: 'Für jede Zahl hast du höchstens 9 Darts, also 3 Runden. Du zählst wie in X01 herunter und musst mit einem Doppel genau auf 0.',
     score: 'Punkte je Check: mit 3 Darts 12, mit 4 Darts 8, mit 5 Darts 6, mit 6 Darts 5, mit 7 Darts 3, mit 8 Darts 2, mit 9 Darts 1. Ohne Check gibt es 0 und es geht mit der nächsten Zahl weiter. Überwerfen ist ein Bust.',
     win: 'Die höchste Summe nach 10 Zahlen gewinnt, höchstens 120. Gleichstand geht ins Stechen mit der nächsten Zahl.',
     opts: {},
@@ -251,10 +253,10 @@ export const HELP = {
   },
   jdc: {
     goal: 'Hol in drei Teilen möglichst viele Punkte.',
-    turn: 'Teil 1: je eine Aufnahme auf 10, 11, 12, 13, 14 und 15. Teil 2: je ein Dart auf D1 bis D20, dann auf Bull. Teil 3: je eine Aufnahme auf 15 bis 20.',
-    score: 'In Teil 1 und 3 zählt der Feldwert. Single, Double und Triple der Zahl in einer Aufnahme sind ein Shanghai und bringen 100 extra. In Teil 2 bringt jedes getroffene Doppel 50, das Bull 100.',
+    turn: 'Teil 1: je eine Runde auf 10, 11, 12, 13, 14 und 15. Teil 2: je ein Dart auf D1 bis D20, dann auf Bull. Teil 3: je eine Runde auf 15 bis 20.',
+    score: 'In Teil 1 und 3 zählt der Feldwert. Single, Double und Triple der Zahl in einer Runde sind ein Shanghai und bringen 100 extra. In Teil 2 bringt jedes getroffene Doppel 50, das Bull 100.',
     win: 'Allein zählt deine Summe als Stufe: White bis 149, Purple ab 150, Yellow ab 300, Green ab 450, Blue ab 600, Red ab 700, Black ab 850. Mehrere Spieler: Die höchste Summe gewinnt.',
-    opts: { jdReps: 'Standard: wie oben, so beschreiben es die meisten Quellen. Lang: fünf Aufnahmen je Zahl und fünf Durchgänge der Doppel. Die Stufen gelten nur für Standard.' },
+    opts: { jdReps: 'Standard: wie oben, so beschreiben es die meisten Quellen. Lang: fünf Runden je Zahl und fünf Durchgänge der Doppel. Die Stufen gelten nur für Standard.' },
     example: 'Auf die 12 triffst du 12, D12 und T12: 72 Punkte plus 100 für den Shanghai.',
   },
 };

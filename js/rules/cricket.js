@@ -3,7 +3,9 @@
 // Die gemeinsame Logik steht in applyMarks. Die drei Regeln unterscheiden sich nur in Feldliste,
 // Reihenfolge, Umgang mit überzähligen Marks und Siegbedingung.
 //
-// Cricket: 15–20 und Bull.
+// Cricket: 15–20 und Bull. Mit Zufallszahlen (DARTSLIVE „Random Cricket"): sechs ausgeloste Zahlen und Bull,
+//   sonst wie Standard Cricket. ANNAHME: Ausgelost wird aus 1–20, DARTSLIVE nennt keinen Bereich. Die Zahlen
+//   stehen in config.numbers, beim Start einmal ausgelost, damit das Replay deterministisch bleibt.
 //   standard:  Überzählige Marks zählen Punkte für dich, solange ein Gegner das Feld offen hat. Höchste Punktzahl gewinnt.
 //   cutthroat: Überzählige Marks zählen für alle offenen Gegner. Niedrigste Punktzahl gewinnt.
 // Mickey Mouse: 20 bis 12 und Bull, optional jedes Doppel und jedes Triple als eigene Felder.
@@ -22,6 +24,16 @@ const TPL = { key: 'T', label: 'T', hit: (d) => (d.m === 3 ? 1 : 0), value: 0 };
 const range = (a, b) => Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => (a > b ? a - i : a + i));
 
 export const CRICKET_ROWS = [...range(20, 15).map(numRow), BULL];
+// Feldliste je Spiel: Zufallszahlen absteigend wie die Standardfelder, sonst 15–20
+export const cricketRows = (cfg) => (cfg.numbers ? [...cfg.numbers].sort((a, b) => b - a).map(numRow).concat(BULL) : CRICKET_ROWS);
+export function drawCricketNumbers(rnd = Math.random) {
+  const pool = range(1, 20);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, 6).sort((a, b) => b - a);
+}
 export const mickeyRows = (cfg) => [...range(20, 12).map(numRow), ...(cfg.dt ? [DBL, TPL] : []), BULL];
 export const shoveRows = (cfg) => [...range(1, 9).map(numRow), ...(cfg.bull ? [BULL_FLAT] : [])];
 
@@ -99,12 +111,12 @@ function mprLine(st, p) {
 export const cricket = {
   id: 'cricket',
   title: () => 'Cricket',
-  subtitle: (cfg) => (cfg.variant === 'cutthroat' ? 'Cut-Throat' : 'Standard'),
+  subtitle: (cfg) => (cfg.variant === 'cutthroat' ? 'Cut-Throat' : 'Standard') + (cfg.numbers ? ' · Zufall ' + cfg.numbers.join(' ') : ''),
   defaults: { variant: 'standard' },
-  rows: () => CRICKET_ROWS,
-  initLeg: (cfg, n) => initMarks(CRICKET_ROWS, n),
+  rows: cricketRows,
+  initLeg: (cfg, n) => initMarks(cricketRows(cfg), n),
   score: (leg, p) => leg.score[p],
-  applyDart: (leg, p, d, cfg) => applyMarks(leg, p, d, CRICKET_ROWS, { points: cfg.variant === 'cutthroat' ? 'cutthroat' : 'standard' }),
+  applyDart: (leg, p, d, cfg) => applyMarks(leg, p, d, cricketRows(cfg), { points: cfg.variant === 'cutthroat' ? 'cutthroat' : 'standard' }),
   line: mprLine,
 };
 

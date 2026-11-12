@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import { replay, matchLine, canStop, RULES } from '../js/engine.js';
 import { suggestCheckout } from '../js/checkout.js';
-import { playerStats, filterGames, rolling, hasPlay } from '../js/stats.js';
-import { atcTarget, dblTargets } from '../js/rules/atc.js';
+import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime } from '../js/stats.js';
+import { atcTarget, dblTargets, atcOrder, atcTargets } from '../js/rules/atc.js';
+import { cricketRows, drawCricketNumbers, CRICKET_ROWS } from '../js/rules/cricket.js';
 import { drawNumbers } from '../js/rules/killer.js';
 import { bobsTarget } from '../js/rules/bobs.js';
 import { drawHalveTargets, HALVE_SETS, BERMUDA } from '../js/rules/halveit.js';
@@ -12,7 +13,7 @@ import { hareTarget } from '../js/rules/hare.js';
 import { jdcPlan, jdcGrade } from '../js/rules/jdc.js';
 import { galleryPoints } from '../js/rules/gallery.js';
 import { outStep } from '../js/rules/checks.js';
-import { importAll, SCHEMA } from '../js/db.js';
+import { importAll, mergeItems, tombstone, SCHEMA } from '../js/db.js';
 
 // Schreibweise der Darts: 20, D20, T20, 25, BULL, - (daneben), X (Aufnahme beenden, Taste „Fertig")
 const D = (txt) => txt.split(/\s+/).filter(Boolean).map((t) => {
@@ -684,9 +685,112 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 4);
+  assert.equal(SCHEMA, 5);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
-  await assert.rejects(importAll({ ...base, schema: 4, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+  await assert.rejects(importAll({ ...base, schema: 5, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+});
+
+// Ein Lösch-Vermerk hat keinen Modus. Er darf nicht als „unbekannter Modus" gelten, sonst lehnte der Import jede
+// Sicherung mit gelöschten Spielen ab. Die Ablehnung kommt vor jedem Speicherzugriff, im Test ohne IndexedDB
+// bricht der Import deshalb erst danach mit einem anderen Fehler ab.
+ok('Sicherung: Lösch-Vermerke gelten nicht als unbekannter Modus', async () => {
+  const data = { app: 'oche', schema: 5, players: [], games: [tombstone('g1', 5)] };
+  await assert.rejects(importAll(data), (e) => !/neueren App-Version/.test(e.message));
+});
+
+ok('Sicherung: Lösch-Vermerk schlägt ältere Kopie, neuere Kopie schlägt Vermerk', () => {
+  const live = { id: 'g1', mode: 'x01', updatedAt: 100 };
+  // Hier gelöscht (Vermerk 200), alte Sicherung bringt das Spiel (100) zurück: bleibt gelöscht
+  let r = mergeItems([tombstone('g1', 200)], [live]);
+  assert.equal(r.puts.length, 0); assert.equal(r.added, 0);
+  // Sicherung vom anderen Tablet enthält den Vermerk (200), hier lebt das Spiel noch (100): wird entfernt
+  r = mergeItems([live], [tombstone('g1', 200)]);
+  assert.equal(r.puts.length, 1); assert.equal(r.removed, 1); assert.equal(r.puts[0].deleted, true);
+  // Vermerk für etwas, das es hier nie gab: wird gespeichert, zählt aber nicht als entfernt
+  r = mergeItems([], [tombstone('g2', 50)]);
+  assert.equal(r.puts.length, 1); assert.equal(r.removed, 0); assert.equal(r.added, 0);
+  // Gleicher Stand doppelt importiert: nichts zu tun
+  r = mergeItems([live], [live]);
+  assert.equal(r.puts.length, 0);
+  // Archiviert (neueres updatedAt) gewinnt gegen das ältere, nicht archivierte Profil aus der Sicherung
+  r = mergeItems([{ id: 'p', archived: true, updatedAt: 300 }], [{ id: 'p', archived: false, updatedAt: 100 }]);
+  assert.equal(r.puts.length, 0);
+});
+
+ok('Statistik: ausgenommenes Spiel zählt nirgends, bleibt aber für die Spieleliste sichtbar', () => {
+  const g = done(game('x01', { start: 501, in: 'single', out: 'double' }, 1, 'T20 T20 T20'));
+  const ex = { ...g, excluded: true };
+  assert.equal(hasPlay(ex, 'p0'), false); assert.equal(hasDarts(ex, 'p0'), true);
+  assert.equal(playerStats('p0', [ex]).x01.darts, 0);
+  assert.equal(playerStats('p0', [g, ex]).x01.darts, 3);
+  assert.equal(playerStats('p0', [ex]).board.total, 0);
+});
+
+ok('Statistik: freier Zeitraum schließt beide Tage ein, vertauschte Eingabe gilt umgekehrt', () => {
+  const at = (y, m, d, h) => new Date(y, m - 1, d, h).getTime();
+  const g = (ts) => ({ mode: 'x01', config: { start: 501 }, finishedAt: ts });
+  const games = [g(at(2026, 11, 1, 0)), g(at(2026, 11, 5, 23)), g(at(2026, 11, 6, 0)), g(at(2026, 10, 31, 23))];
+  const F = { custom: true, from: '2026-11-01', to: '2026-11-05', mode: 'all' };
+  assert.equal(filterGames(games, F).length, 2);
+  assert.equal(filterGames(games, { ...F, from: '2026-11-05', to: '2026-11-01' }).length, 2);
+  assert.equal(filterGames(games, { ...F, to: '' }).length, 3);
+  // Zeitraum-Knöpfe gelten weiter, solange custom aus ist
+  assert.equal(filterGames(games, { ...F, custom: false, days: null }).length, 4);
+});
+
+ok('Statistik: Zeitpunkt eines laufenden Spiels ist der letzte Wurf, nicht updatedAt', () => {
+  const g = { createdAt: 10, updatedAt: 999, darts: [{ s: 20, m: 1, t: 50 }] };
+  assert.equal(gameTime(g), 50);
+  assert.equal(gameTime({ ...g, finishedAt: 70 }), 70);
+  assert.equal(gameTime({ createdAt: 10, updatedAt: 999, darts: [] }), 10);
+});
+
+// ---------- Zufallszahlen ----------
+ok('Cricket mit Zufallszahlen: 6 verschiedene aus 1–20 plus Bull, Spiel läuft nur auf diesen Feldern', () => {
+  for (let k = 0; k < 50; k++) {
+    const nums = drawCricketNumbers();
+    assert.equal(new Set(nums).size, 6);
+    assert.ok(nums.every((x) => x >= 1 && x <= 20));
+  }
+  const cfg = { variant: 'standard', numbers: [3, 11, 7, 20, 1, 14] };
+  assert.deepEqual(cricketRows(cfg).map((r) => r.key), ['20', '14', '11', '7', '3', '1', 'B']);
+  assert.equal(cricketRows({ variant: 'standard' }), CRICKET_ROWS);
+  // T3 schließt die 3, 15 zählt nicht, T3 danach bringt 9 Punkte, solange der Gegner die 3 offen hat
+  let st = replay(game('cricket', cfg, 2, 'T3 15 -  - - -  T3'));
+  assert.equal(st.leg.marks[0]['3'], 3); assert.equal(st.leg.score[0], 9); assert.equal(st.leg.marks[0]['15'], undefined);
+  // Alles zu gewinnt
+  st = replay(game('cricket', cfg, 1, 'T20 T14 T11  T7 T3 T1  BULL 25'));
+  assert.equal(st.finished, true);
+  assert.equal(RULES.cricket.subtitle(cfg), 'Standard · Zufall 3 11 7 20 1 14');
+});
+
+ok('Around the Clock: Reihenfolge absteigend (Bull zuerst) und zufällig (Bull irgendwo)', () => {
+  assert.deepEqual(atcOrder('desc', true).slice(0, 3), [25, 20, 19]);
+  assert.equal(atcOrder('asc', true), null);
+  const r = atcOrder('random', true);
+  assert.equal(r.length, 21); assert.deepEqual([...r].sort((a, b) => a - b), [...Array.from({ length: 20 }, (_, i) => i + 1), 25]);
+  // Absteigend ohne Bull: 20 zuerst
+  const cfg = { zone: 'any', bull: false, targets: atcOrder('desc', false) };
+  const st = replay(game('atc', cfg, 1, '1 20 19'));
+  assert.equal(st.leg.pos[0], 2); assert.equal(atcTargets(cfg)[st.leg.pos[0]], 18);
+});
+
+ok('Revanche lost Cricket-Zahlen und ATC-Reihenfolge neu aus, Standard bleibt ohne Zufallswerte', async () => {
+  const { MODES } = await import('../js/modes.js');
+  const first = MODES.cricket.prepare({ variant: 'standard', random: true });
+  const draws = new Set(Array.from({ length: 20 }, () => MODES.cricket.prepare({ ...first }).numbers.join()));
+  assert.ok(draws.size > 1);
+  assert.equal(MODES.cricket.prepare({ variant: 'standard', random: false }).numbers, undefined);
+  assert.equal(MODES.atc.prepare({ zone: 'any', bull: false, order: 'asc' }).targets, undefined);
+  assert.equal(MODES.atc.prepare({ zone: 'any', bull: false, order: 'random' }).targets.length, 20);
+});
+
+ok('Around the Clock: D/T springt nie über ein Bull mitten in der Folge', () => {
+  const cfg = { zone: 'skip', bull: true, targets: [5, 25, 9, 2] };
+  let st = replay(game('atc', cfg, 1, 'T5'));
+  assert.equal(st.leg.pos[0], 1); // stoppt vor Bull
+  st = replay(game('atc', cfg, 1, 'T5 BULL T9'));
+  assert.equal(st.leg.pos[0], 4); assert.equal(st.finished, true); // T9 springt bis ans Ende, nicht darüber hinaus
 });
 
 // ---------- Checkout ----------

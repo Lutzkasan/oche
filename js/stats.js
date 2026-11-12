@@ -19,13 +19,20 @@ export function replayCached(g) {
   return st;
 }
 
-// Zählt ein Spiel für diesen Spieler? Erst mit mindestens einem eigenen Dart.
-// Filterleiste und Kennzahlen nutzen dieselbe Prüfung. Vorher zählte die Filterleiste jedes gestartete Spiel,
-// die Kennzahlen nur Spiele mit Darts. Deshalb erschien ein Modus im Filter, ohne dass es etwas zu zeigen gab.
-export function hasPlay(g, playerId) {
+// Hat der Spieler in diesem Spiel mindestens einen eigenen Dart geworfen? Unabhängig von der Wertung.
+// Die Spieleliste der Statistik braucht das, um auch nicht gewertete Spiele zum Zurückholen zu zeigen.
+export function hasDarts(g, playerId) {
   const p = g.playerIds.indexOf(playerId);
   if (p < 0 || !g.darts.some((d) => !d.stop)) return false;
   return replayCached(g).darts.some((x) => x.p === p);
+}
+
+// Zählt ein Spiel für diesen Spieler? Erst mit mindestens einem eigenen Dart, und nur, wenn es nicht von der
+// Wertung ausgenommen ist (g.excluded). Filterleiste und Kennzahlen nutzen dieselbe Prüfung. Vorher zählte die
+// Filterleiste jedes gestartete Spiel, die Kennzahlen nur Spiele mit Darts. Deshalb erschien ein Modus im Filter,
+// ohne dass es etwas zu zeigen gab. Die Ausnahme steht deshalb auch nur hier.
+export function hasPlay(g, playerId) {
+  return !g.excluded && hasDarts(g, playerId);
 }
 
 // Spiele mit Endstand: Wertung ist der Stand am Leg-Ende (legResults.scores)
@@ -341,13 +348,28 @@ export function playerStats(playerId, games) {
 }
 
 // Zeitpunkt, zu dem ein Spiel für Zeitraum-Filter zählt: Ende, sonst letzter Wurf.
-export const gameTime = (g) => g.finishedAt || g.updatedAt || g.createdAt || 0;
+// updatedAt taugt dafür nicht: Es ist der Versionsstand für den Import und ändert sich auch, wenn ein Spiel
+// von der Wertung ausgenommen wird.
+export const gameTime = (g) => g.finishedAt || g.darts?.at(-1)?.t || g.createdAt || g.updatedAt || 0;
 
-// filter: { days: Zahl oder null, mode: 'all' | Modus-ID | X01-Startwert ('301', '501', …) }
+// Kalendertag 'JJJJ-MM-TT' als Zeitspanne in Ortszeit: Beginn des Tages bis Ende des Tages
+const dayStart = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+export function rangeOf(filter, now = Date.now()) {
+  if (filter.custom) {
+    const from = filter.from ? dayStart(filter.from) : -Infinity;
+    const to = filter.to ? dayStart(filter.to) + 864e5 - 1 : Infinity;
+    return from <= to ? [from, to] : [to - 864e5 + 1, from + 864e5 - 1]; // vertauschte Eingabe gilt umgekehrt
+  }
+  return [filter.days ? now - filter.days * 864e5 : -Infinity, Infinity];
+}
+
+// filter: { days: Zahl oder null, custom: true mit from/to ('JJJJ-MM-TT', beide Tage eingeschlossen),
+//           mode: 'all' | Modus-ID | X01-Startwert ('301', '501', …) }
 export function filterGames(games, filter, now = Date.now()) {
-  const from = filter.days ? now - filter.days * 864e5 : -Infinity;
+  const [from, to] = rangeOf(filter, now);
   return games.filter((g) => {
-    if (gameTime(g) < from) return false;
+    const t = gameTime(g);
+    if (t < from || t > to) return false;
     if (filter.mode === 'all' || !filter.mode) return true;
     if (/^\d+$/.test(filter.mode)) return g.mode === 'x01' && String(g.config.start) === filter.mode;
     return g.mode === filter.mode;

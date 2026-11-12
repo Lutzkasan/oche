@@ -9,7 +9,16 @@ const DB_VERSION = 1;
 // unbekannten Modus abzustürzen, steigt SCHEMA mit jedem neuen Modus.
 // Ab 0.4.0 prüft der Import zusätzlich jeden Modus gegen RULES. Ein vergessener Schema-Sprung führt
 // dann zur selben Ablehnung mit Hinweis statt zu einem Absturz.
-export const SCHEMA = 4;
+// 5 = Lösch-Vermerke { id, deleted: true, updatedAt }, Spiele mit excluded (nicht gewertet), Cricket mit
+//     Zufallszahlen (config.numbers), Around the Clock mit Reihenfolge (config.targets). Eine App mit Schema 4
+//     würde Lösch-Vermerke als Spiele ohne Modus lesen und ausgenommene Spiele mitzählen. Deshalb lehnt sie ab.
+export const SCHEMA = 5;
+
+// Löschen hinterlässt einen Lösch-Vermerk statt den Eintrag zu entfernen. Grund: Der Import führt nach ID
+// zusammen. Ein spurlos gelöschter Eintrag käme mit jeder älteren Sicherung zurück. Der Vermerk trägt ein
+// neueres updatedAt und gewinnt deshalb gegen jede ältere Kopie, auch auf einem anderen Tablet.
+export const isDeleted = (x) => Boolean(x?.deleted);
+export const tombstone = (id, now = Date.now()) => ({ id, deleted: true, updatedAt: now });
 
 let dbp = null;
 function open() {
@@ -43,8 +52,10 @@ async function tx(store, mode, fn) {
 }
 
 export const getAll = (store) => tx(store, 'readonly', (s) => s.getAll());
+// Alles außer Lösch-Vermerken. Die App arbeitet nur mit diesen Einträgen.
+export const getLive = async (store) => (await getAll(store)).filter((x) => !isDeleted(x));
 export const put = (store, obj) => tx(store, 'readwrite', (s) => s.put(obj));
-export const del = (store, id) => tx(store, 'readwrite', (s) => s.delete(id));
+export const remove = (store, id) => put(store, tombstone(id));
 export const getMeta = async (key) => (await tx('meta', 'readonly', (s) => s.get(key)))?.value;
 export const setMeta = (key, value) => put('meta', { key, value });
 
@@ -54,34 +65,49 @@ export async function exportAll() {
 }
 
 // Zusammenführen nach ID: Neuere Version (updatedAt) gewinnt. Mehrfaches Importieren ist folgenlos.
+// Lösch-Vermerke werden wie Einträge zusammengeführt: der neuere Stand gewinnt, ob Vermerk oder Eintrag.
 export async function importAll(data) {
   if (!data || data.app !== 'oche' || !Array.isArray(data.players) || !Array.isArray(data.games)) {
     throw new Error('Das ist keine Oche-Sicherung.');
   }
-  const unknown = [...new Set(data.games.filter((g) => g && typeof g.id === 'string').map((g) => g.mode).filter((m) => !RULES[m]))];
+  const unknown = [...new Set(data.games.filter((g) => g && typeof g.id === 'string' && !isDeleted(g)).map((g) => g.mode).filter((m) => !RULES[m]))];
   if (data.schema > SCHEMA || unknown.length) {
     throw new Error('Die Sicherung stammt aus einer neueren App-Version' + (unknown.length ? ` (Spielmodus ${unknown.join(', ')})` : '') + '. Bitte zuerst die App aktualisieren.');
   }
   const db = await open();
-  const counts = { players: 0, games: 0 };
+  const counts = { players: 0, games: 0, removed: 0 };
   for (const store of ['players', 'games']) {
-    const existing = new Map((await getAll(store)).map((x) => [x.id, x]));
+    const { puts, added, removed } = mergeItems(await getAll(store), data[store]);
+    counts[store] = added;
+    counts.removed += removed;
     await new Promise((resolve, reject) => {
       const t = db.transaction(store, 'readwrite');
       const s = t.objectStore(store);
-      for (const item of data[store]) {
-        if (!item || typeof item.id !== 'string') continue;
-        const cur = existing.get(item.id);
-        if (!cur || (item.updatedAt || 0) > (cur.updatedAt || 0)) {
-          s.put(item);
-          counts[store]++;
-        }
-      }
+      for (const item of puts) s.put(item);
       t.oncomplete = resolve;
       t.onerror = () => reject(t.error);
     });
   }
   return counts;
+}
+
+// Reine Zusammenführung, getrennt vom Speicher, damit die Tests sie ohne IndexedDB prüfen können.
+// Liefert die zu schreibenden Einträge. added = neue oder aktualisierte Einträge, removed = Einträge, die hier
+// noch lebten und die ein neuerer Lösch-Vermerk entfernt. Ein Vermerk für etwas, das hier nie existierte,
+// ändert nichts Sichtbares und zählt nicht.
+export function mergeItems(existing, incoming) {
+  const have = new Map(existing.map((x) => [x.id, x]));
+  const puts = [];
+  let added = 0, removed = 0;
+  for (const item of incoming) {
+    if (!item || typeof item.id !== 'string') continue;
+    const cur = have.get(item.id);
+    if (cur && (item.updatedAt || 0) <= (cur.updatedAt || 0)) continue;
+    puts.push(item);
+    have.set(item.id, item);
+    if (isDeleted(item)) { if (cur && !isDeleted(cur)) removed++; } else added++;
+  }
+  return { puts, added, removed };
 }
 
 // Fordert dauerhaften Speicher an, damit Android die Daten bei Speichermangel nicht räumt.
