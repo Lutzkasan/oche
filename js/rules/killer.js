@@ -15,6 +15,7 @@ export const killer = {
   defaults: { lives: 3, zone: 'double', selfHit: true },
   minPlayers: 2,
 
+  draw: (cfg, n, rnd) => ({ numbers: drawNumbers(n, rnd) }),
   initLeg(cfg, n) {
     return { lives: Array(n).fill(cfg.lives), killer: Array(n).fill(false) };
   },

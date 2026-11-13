@@ -1,5 +1,5 @@
 import * as db from './db.js';
-import { replay, RULES, matchLine, canStop } from './engine.js';
+import { replay, RULES, matchLine, canStop, prepareConfig } from './engine.js';
 import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime } from './stats.js';
 import { lineChart, bindCharts, boardHeatmap, fieldLabel } from './charts.js';
 import { HELP, TERMS } from './help.js';
@@ -9,7 +9,7 @@ import {
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.6.0';
+export const APP_VERSION = '0.6.1';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
 
@@ -29,7 +29,7 @@ const archivedPlayers = () => S.players.filter((p) => p.archived).sort(byName);
 
 // ---------- Ansichten ----------
 const VIEWS = {
-  home: viewHome, players: viewPlayers, setup: viewSetup, game: viewGame, stats: viewStats, data: viewData,
+  home: viewHome, players: viewPlayers, archive: viewArchive, setup: viewSetup, game: viewGame, stats: viewStats, data: viewData,
 };
 
 function render() {
@@ -38,9 +38,14 @@ function render() {
   if (S.view === 'stats') bindCharts($app);
 }
 
-function topbar(title, extra = '') {
-  return `<header class="topbar"><button class="icon-btn" data-a="nav" data-v="home" aria-label="Zurück">‹</button><h2>${title}</h2>${extra}</header>`;
+function topbar(title, extra = '', back = 'home') {
+  return `<header class="topbar"><button class="icon-btn" data-a="nav" data-v="${back}" aria-label="Zurück">‹</button><h2>${title}</h2>${extra}</header>`;
 }
+
+const swatches = (sel, action) => `<div class="swatches">${COLORS.map((c) => `<button type="button" class="sw ${c === sel ? 'on' : ''}" style="--pc:${c}" data-a="${action}" data-v="${c}" aria-label="Farbe"></button>`).join('')}</div>`;
+
+// Neue Profile bekommen die erste Farbe, die kein sichtbares Profil trägt
+const nextColor = () => { const used = new Set(visiblePlayers().map((p) => p.color)); return COLORS.find((c) => !used.has(c)) || COLORS[S.players.length % COLORS.length]; };
 
 function logo() {
   return `<svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
@@ -98,10 +103,11 @@ function viewPlayers() {
   const list = visiblePlayers(), arch = archivedPlayers();
   const count = (id) => S.games.filter((g) => g.playerIds.includes(id)).length;
   const games = (n) => (n === 1 ? '1 Spiel' : `${n} Spiele`);
-  return `${topbar('Spieler')}<main class="page players">
+  const archBtn = arch.length ? `<button class="btn sm" data-a="nav" data-v="archive">Archiv · ${arch.length}</button>` : '';
+  return `${topbar('Spieler', archBtn)}<main class="page players">
     <form class="card add-player" data-form="addPlayer">
       <input name="name" placeholder="Name" maxlength="24" autocomplete="off" required>
-      <div class="swatches">${COLORS.map((c) => `<button type="button" class="sw ${c === S.newColor ? 'on' : ''}" style="--pc:${c}" data-a="pickColor" data-v="${c}" aria-label="Farbe"></button>`).join('')}</div>
+      ${swatches(S.newColor, 'pickColor')}
       <button class="btn primary">Anlegen</button>
     </form>
     <div class="list cols">${list.map((p) => {
@@ -109,14 +115,24 @@ function viewPlayers() {
       return `<div class="row static">
       <span class="dot" style="--pc:${p.color}"></span><span class="r-main">${esc(p.name)}</span>
       <span class="r-sub">${games(n)}</span>
-      <span class="r-actions"><button class="btn sm" data-a="renamePlayer" data-v="${p.id}">Umbenennen</button>
+      <span class="r-actions"><button class="btn sm" data-a="editPlayer" data-v="${p.id}">Bearbeiten</button>
       <button class="btn sm ghost" data-a="removePlayer" data-v="${p.id}">${n ? 'Archivieren' : 'Löschen'}</button></span></div>`;
     }).join('') || '<p class="muted">Noch keine Spieler. Leg oben das erste Profil an.</p>'}</div>
-    ${arch.length ? `<section><h3 class="sec">Archiviert <small>nicht in Spielerauswahl und Statistik, Spiele bleiben erhalten</small></h3>
+  </main>`;
+}
+
+// Archiv: eigene Seite, erreichbar über den Knopf „Archiv" bei den Spielern
+function viewArchive() {
+  const arch = archivedPlayers();
+  const count = (id) => S.games.filter((g) => g.playerIds.includes(id)).length;
+  return `${topbar('Archiv', '', 'players')}<main class="page players">
+    <p class="muted">Archivierte Profile fehlen in Spielerauswahl und Statistik. Ihre Spiele zählen weiter, auch für die Mitspieler.
+      „Vergessen" löscht das Profil endgültig.</p>
     <div class="list cols">${arch.map((p) => `<div class="row static archived">
       <span class="dot" style="--pc:${p.color}"></span><span class="r-main">${esc(p.name)}</span>
-      <span class="r-sub">${games(count(p.id))}</span>
-      <span class="r-actions"><button class="btn sm" data-a="restorePlayer" data-v="${p.id}">Zurückholen</button></span></div>`).join('')}</div></section>` : ''}
+      <span class="r-sub">${count(p.id) === 1 ? '1 Spiel' : count(p.id) + ' Spiele'}</span>
+      <span class="r-actions"><button class="btn sm" data-a="restorePlayer" data-v="${p.id}">Zurückholen</button>
+      <button class="btn sm danger" data-a="forgetPlayer" data-v="${p.id}">Vergessen</button></span></div>`).join('') || '<p class="muted">Das Archiv ist leer.</p>'}</div>
   </main>`;
 }
 
@@ -179,7 +195,8 @@ function keypad(st) {
   const want = ui.mult ? ui.mult(st) : 0; // Ziel verlangt Doppel/Triple: Taste markieren, Eingabe bleibt frei
   const hint = (v) => (want === v ? ` want" style="--tc:${pcolor(st.current)}` : '');
   const nums = ui.nums ? ui.nums(st) : Array.from({ length: 20 }, (_, i) => i + 1);
-  const stops = Boolean(st.rule.canStop);
+  // Taste „Fertig“ nur, wenn die Regel in dieser Einstellung je aufhören lässt. Sonst wäre sie immer gesperrt.
+  const stops = Boolean(st.rule.canStop) && (!st.rule.stops || st.rule.stops(st.cfg));
   return `<section class="pad ${m === 2 ? 'mode-d' : m === 3 ? 'mode-t' : ''} ${nums.length < 20 ? 'cricket' : ''}">
     <div class="mods ${stops ? 'three' : ''}"><button class="mod d ${m === 2 ? 'on' : ''}${hint(2)}" data-a="mult" data-v="2">Double</button>
       <button class="mod t ${m === 3 ? 'on' : ''}${hint(3)}" data-a="mult" data-v="3">Triple</button>
@@ -427,8 +444,9 @@ async function throwDart(s, mOverride) {
 
 function startGame(mode, config, playerIds) {
   const now = Date.now();
+  // Erst die modusspezifische Vorbereitung, dann seed und Zufallswerte des ersten Legs (engine.js, draw)
   const prepare = MODES[mode].prepare;
-  const cfg = prepare ? prepare(config, playerIds.length) : config;
+  const cfg = prepareConfig(mode, prepare ? prepare(config, playerIds.length) : config, playerIds.length);
   const g = { id: uid(), mode, config: cfg, playerIds, darts: [], status: 'active', winnerId: null, createdAt: now, updatedAt: now, finishedAt: null };
   S.games.push(g);
   openGame(g);
@@ -501,7 +519,8 @@ function download(file) {
 const A = {
   nav: (v) => { S.view = v; clearFlash(); if (v !== 'game') wake(false); render(); window.scrollTo(0, 0); },
   resume: (id) => openGame(S.games.find((g) => g.id === id)),
-  pickColor: (c) => { S.newColor = c; document.querySelectorAll('.sw').forEach((b) => b.classList.toggle('on', b.dataset.v === c)); },
+  pickColor: (c) => { S.newColor = c; document.querySelectorAll('.add-player .sw').forEach((b) => b.classList.toggle('on', b.dataset.v === c)); },
+  pickEditColor: (c) => { S.editColor = c; document.querySelectorAll('dialog .sw').forEach((b) => b.classList.toggle('on', b.dataset.v === c)); },
   setup: (v, el) => { const k = el.dataset.k; S.setup[k] = isNaN(v) ? v : Number(v); saveSetup(); render(); },
   step: (v, el) => { const k = el.dataset.k; S.setup[k] += Number(v); saveSetup(); render(); },
   help: (mode) => showHelp(mode),
@@ -516,11 +535,12 @@ const A = {
     const p = addPlayer(r.value, COLORS[S.players.length % COLORS.length]);
     S.setup.players.push(p.id); saveSetup(); render();
   },
-  renamePlayer: async (id) => {
+  editPlayer: async (id) => {
     const p = player(id);
-    const r = await dialog({ title: 'Umbenennen', input: p.name, buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Speichern', value: 'ok', primary: true }] });
+    S.editColor = p.color;
+    const r = await dialog({ title: 'Spieler bearbeiten', cls: 'edit-player', html: swatches(p.color, 'pickEditColor'), input: p.name, buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Speichern', value: 'ok', primary: true }] });
     if (r.btn !== 'ok' || !r.value) return;
-    p.name = r.value; p.updatedAt = Date.now();
+    p.name = r.value; p.color = S.editColor; p.updatedAt = Date.now();
     render(); persist('players', p);
   },
   // Profil mit Spielen: archivieren (umkehrbar, alle Spiele bleiben, auch für Mitspieler).
@@ -530,7 +550,7 @@ const A = {
     const used = S.games.some((g) => g.playerIds.includes(id));
     const r = await dialog({
       title: used ? `${p.name} archivieren?` : `${p.name} löschen?`,
-      text: used ? 'Das Profil verschwindet aus Spielerauswahl und Statistik. Alle Spiele bleiben erhalten, auch in der Statistik der Mitspieler. Unter „Archiviert" holst du es jederzeit zurück.' : 'Das Profil hat keine Spiele und wird gelöscht.',
+      text: used ? 'Das Profil verschwindet aus Spielerauswahl und Statistik. Alle Spiele bleiben erhalten, auch in der Statistik der Mitspieler. Über den Knopf „Archiv" holst du es jederzeit zurück.' : 'Das Profil hat keine Spiele und wird gelöscht.',
       buttons: [{ label: 'Abbrechen', value: 'x' }, { label: used ? 'Archivieren' : 'Löschen', value: 'ok', danger: true }],
     });
     if (r.btn !== 'ok') return;
@@ -540,7 +560,26 @@ const A = {
     else { S.players = S.players.filter((x) => x.id !== id); db.remove('players', id).catch((e) => toast('Löschen fehlgeschlagen: ' + e.message)); }
     render();
   },
-  restorePlayer: (id) => { setFlag('players', player(id), 'archived', false); render(); },
+  restorePlayer: (id) => {
+    setFlag('players', player(id), 'archived', false);
+    if (!archivedPlayers().length) S.view = 'players';
+    render();
+  },
+  // Endgültig: Lösch-Vermerk statt Profil. Die Spiele bleiben, damit die Statistik der Mitspieler stimmt.
+  // Dort steht statt des Namens „Vergessen" (FORGOTTEN in ui.js).
+  forgetPlayer: async (id) => {
+    const p = player(id);
+    const r = await dialog({
+      title: `${p.name} vergessen?`,
+      text: 'Das Profil wird endgültig gelöscht und taucht nirgends mehr auf, auch nicht im Archiv. Gemeinsame Spiele bleiben in der Statistik der Mitspieler, dort steht dann „Vergessen" statt des Namens. Das lässt sich nicht rückgängig machen.',
+      buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Vergessen', value: 'ok', danger: true }],
+    });
+    if (r.btn !== 'ok') return;
+    S.players = S.players.filter((x) => x.id !== id);
+    db.remove('players', id).catch((e) => toast('Löschen fehlgeschlagen: ' + e.message));
+    if (!archivedPlayers().length) S.view = 'players';
+    render();
+  },
   // Spiel aus der Wertung nehmen oder zurückholen. Gilt für alle Spieler des Spiels.
   toggleExclude: (id) => {
     const g = S.games.find((x) => x.id === id);
@@ -554,7 +593,7 @@ const A = {
     const s = S.setup;
     startGame(s.mode, { ...MODES[s.mode].config(s), legs: s.legs, sets: s.sets }, [...s.players]);
   },
-  // Revanche: nächster Spieler wirft an. prepare() läuft erneut, Zufallswerte werden also neu ausgelost.
+  // Revanche: nächster Spieler wirft an. startGame vergibt einen neuen seed, Zufallswerte werden neu ausgelost.
   rematch: () => {
     const g = S.game;
     startGame(g.mode, { ...g.config }, [...g.playerIds.slice(1), g.playerIds[0]]);
@@ -625,7 +664,7 @@ document.addEventListener('submit', async (e) => {
   const name = e.target.name.value.trim();
   if (!name) return;
   addPlayer(name, S.newColor);
-  S.newColor = COLORS[S.players.length % COLORS.length];
+  S.newColor = nextColor();
   render();
 });
 
@@ -662,6 +701,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // ---------- Start ----------
 async function loadAll() {
   [S.players, S.games] = await Promise.all([db.getLive('players'), db.getLive('games')]);
+  S.newColor = nextColor();
   S.lastExport = (await db.getMeta('lastExport')) || null;
 }
 

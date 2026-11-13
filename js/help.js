@@ -38,13 +38,13 @@ export const HELP = {
     win: 'Wer alle Felder zu hat und mindestens so viele Punkte wie jeder Gegner, gewinnt das Leg.',
     opts: {
       variant: 'Standard: Überzählige Treffer zählen für dich, die höchste Punktzahl gewinnt. Cut-Throat: Überzählige Treffer geben jedem Gegner mit offenem Feld Punkte. Dann gewinnt die niedrigste Punktzahl.',
-      crNums: '15–20 + Bull: die üblichen Felder. Zufall: Beim Start werden sechs Zahlen aus 1 bis 20 ausgelost, Bull kommt immer dazu (so spielen es DARTSLIVE-Automaten als „Random Cricket"). Sonst gelten alle Regeln wie oben. Die Revanche lost neu aus. Kombinierbar mit Cut-Throat.',
+      crNums: '15–20 + Bull: die üblichen Felder. Zufall: Jedes Leg bekommt sechs ausgeloste Zahlen aus 1 bis 20, Bull kommt immer dazu (so spielen es DARTSLIVE-Automaten als „Random Cricket"). Sonst gelten alle Regeln wie oben. Kombinierbar mit Cut-Throat.',
     },
     example: 'Deine 20 ist zu, die deines Gegners nicht. Du triffst T20: 60 Punkte für dich. Bei Cut-Throat bekommt er die 60.',
   },
   killer: {
     goal: 'Nimm den anderen alle Leben und bleib als Letzter übrig.',
-    turn: 'Jeder bekommt beim Start eine zufällige Zahl. Triff zuerst deine eigene Zahl, dann bist du Killer. Erst als Killer wirfst du auf die Zahlen der anderen.',
+    turn: 'Jeder bekommt zu Beginn jedes Legs eine neue zufällige Zahl. Triff zuerst deine eigene Zahl, dann bist du Killer. Erst als Killer wirfst du auf die Zahlen der anderen.',
     score: 'Jeder Killer-Treffer auf eine fremde Zahl kostet ihren Besitzer ein Leben. Das Tastenfeld zeigt dir, welche Zahlen du gerade treffen sollst.',
     win: 'Wer keine Leben mehr hat, ist raus. Der Letzte mit Leben gewinnt.',
     opts: {
@@ -56,7 +56,7 @@ export const HELP = {
   },
   blindkiller: {
     goal: 'Bleib als Letzter übrig, obwohl niemand weiß, welche Zahl wem gehört.',
-    turn: 'Beim Start bekommt jeder verdeckt eine Zahl. Die Zahlen im Spiel stehen auf dem Brett, ihre Besitzer nicht. Alle werfen auf beliebige Doppel.',
+    turn: 'Zu Beginn jedes Legs bekommt jeder verdeckt eine neue Zahl. Die Zahlen im Spiel stehen auf dem Brett, ihre Besitzer nicht. Alle werfen auf beliebige Doppel.',
     score: 'Jedes Doppel auf eine Zahl im Spiel kostet ihren Besitzer ein Leben. Das gilt auch für deine eigene Zahl. Mit „Meine Zahl ansehen" schaust du nach, die anderen schauen kurz weg. Einen Killer-Status gibt es hier nicht.',
     win: 'Wer keine Leben mehr hat, ist raus, und seine Zahl wird aufgedeckt. Der Letzte gewinnt.',
     opts: {
@@ -67,7 +67,7 @@ export const HELP = {
   },
   ttt: {
     goal: 'Hol dir drei Felder in einer Reihe: waagrecht, senkrecht oder diagonal.',
-    turn: 'Das Raster hat neun Felder. In der Mitte steht Bull, außen acht beim Start ausgeloste Zahlen. In deiner Runde nimmst du Felder, indem du ihre Zahl triffst.',
+    turn: 'Das Raster hat neun Felder. In der Mitte steht Bull, außen acht Zahlen, die jedes Leg neu ausgelost werden. In deiner Runde nimmst du Felder, indem du ihre Zahl triffst.',
     score: 'Ein genommenes Feld gehört dir für das ganze Leg. Treffer auf besetzte Felder zählen nicht. Genau zwei Spieler.',
     win: 'Drei in einer Reihe gewinnt sofort. Ist das Raster voll ohne Reihe, gewinnt, wer mehr Felder hat.',
     opts: {
@@ -89,11 +89,14 @@ export const HELP = {
   },
   follow: {
     goal: 'Triff das Feld, das dir vorgegeben wird, und gib den anderen schwere Felder vor.',
-    turn: 'Das Ziel ist ein genaues Feld, zum Beispiel T20 oder D5. Du hast drei Darts, um es zu treffen. Danach legt dein letzter Dart das Ziel für den Nächsten fest. Mit „Fertig" hörst du nach dem festlegenden Dart auf.',
-    score: 'Triffst du das Ziel nicht, verlierst du ein Leben. Triffst du erst mit dem dritten Dart, bekommst du eine Extra-Runde zum Festlegen. Landet dein festlegender Dart daneben, kostet das ein Leben und der Nächste legt neu fest. Kommt dein eigenes Ziel zu dir zurück, darfst du passen: Ein Fehlwurf kostet dann nichts.',
+    turn: 'Das Ziel ist ein genaues Feld, zum Beispiel T20 oder D5. Wer anfängt, legt es mit seinem ersten Treffer fest, daneben zählt nicht. Danach hat jeder drei Darts, um das Ziel zu treffen. Wer trifft und noch Darts hat, legt mit seinem nächsten Treffer das neue Ziel fest. Damit endet seine Runde.',
+    score: 'Triffst du das Ziel nicht, verlierst du ein Leben, und der Nächste muss dasselbe Ziel treffen. Triffst du das Ziel mit dem letzten Dart oder danach nur daneben, bleibt das Ziel für den Nächsten stehen. Kommt dein eigenes Ziel zu dir zurück, darfst du passen: Ein Fehlwurf kostet dann nichts.',
     win: 'Wer keine Leben mehr hat, ist raus. Der Letzte gewinnt.',
-    opts: { flLives: 'Wie viele Leben jeder hat.' },
-    example: 'Anna legt T20 vor. Ben trifft T20 mit dem ersten Dart, wirft dann D5 und drückt „Fertig". Jetzt muss Carla D5 treffen. Single innen und außen kann die App nicht unterscheiden, beide zählen als dasselbe Feld.',
+    opts: {
+      flSet: 'Erster Treffer: wie oben. Letzter Dart (darts501): Nach dem Treffer legt dein letzter Dart das Ziel fest, „Fertig" beendet die Runde früher. Triffst du das Ziel erst mit dem dritten Dart, bekommst du eine Extra-Runde zum Festlegen. Landet ein festlegender Dart daneben, kostet das ein Leben.',
+      flLives: 'Wie viele Leben jeder hat.',
+    },
+    example: 'Anna trifft mit dem ersten Dart T20, das ist das Ziel. Ben trifft T20 mit dem ersten Dart und mit dem zweiten D5. Jetzt muss Carla D5 treffen. Trifft Carla D5 erst mit dem dritten Dart, muss auch David D5 treffen. Single innen und außen kann die App nicht unterscheiden, beide zählen als dasselbe Feld.',
   },
   knockout: {
     goal: 'Übertriff mit jeder Runde die Vorgabe.',
@@ -155,7 +158,7 @@ export const HELP = {
     score: 'Triffst du in einer Runde gar nicht, wird dein Stand halbiert.',
     win: 'Nach der letzten Runde gewinnt der höchste Stand. Gleichstand geht ins Stechen auf Bull.',
     opts: {
-      hSet: 'Standard: 20 · Doppel · 19 · Triple · 18 · 17 · 16 · 15 · Bull. Kurz: 20 · 19 · Doppel · 18 · Triple · Bull. Zufall: sechs Zahlen, Doppel und Triple werden beim Start ausgelost, Bull bleibt am Ende.',
+      hSet: 'Standard: 20 · Doppel · 19 · Triple · 18 · 17 · 16 · 15 · Bull. Kurz: 20 · 19 · Doppel · 18 · Triple · Bull. Zufall: sechs Zahlen, Doppel und Triple werden jedes Leg neu ausgelost, Bull bleibt am Ende.',
       hRound: 'Was bei ungeraden Ständen passiert. Aufrunden: 21 wird 11. Abrunden: 21 wird 10.',
     },
     example: 'Du hast 45 und verfehlst die 17 dreimal. Aufgerundet stehst du danach bei 23.',
@@ -195,7 +198,7 @@ export const HELP = {
     win: 'Wer zuerst durch ist, gewinnt das Leg. Allein spielst du auf möglichst wenige Darts.',
     opts: {
       atcBull: 'Mit Bull musst du zusätzlich das Bull treffen, aufsteigend als letztes Ziel.',
-      atcOrder: 'Aufsteigend: 1 bis 20, dann Bull. Absteigend: erst Bull, dann 20 bis 1. Zufällig: Alle Ziele kommen in einer beim Start ausgelosten Reihenfolge, Bull irgendwo dazwischen. Die Revanche lost neu aus. Das Brett zeigt die Folge.',
+      atcOrder: 'Aufsteigend: 1 bis 20, dann Bull. Absteigend: erst Bull, dann 20 bis 1. Zufällig: Alle Ziele kommen in einer ausgelosten Reihenfolge, Bull irgendwo dazwischen. Jedes Leg lost neu aus. Das Brett zeigt die Folge.',
       atcZone: 'Jedes Feld: Single, Double und Triple zählen gleich. D/T springt: Double bringt dich zwei Ziele weiter, Triple drei. Über Bull springst du nicht hinweg, Bull musst du selbst treffen. Nur Doppel bzw. Nur Triple: Nur dieser Ring zählt, beim Bull nur das Bull.',
     },
     example: 'Du stehst auf 5. Mit „D/T springt" bringt dich T5 auf die 8.',
@@ -206,7 +209,7 @@ export const HELP = {
     score: 'Nur das Doppel der Zielzahl zählt. Die Statistik misst, wie viele Darts du je Doppel brauchst.',
     win: 'Wer zuerst alle Doppel hat, gewinnt. Allein zählen deine Darts.',
     opts: {
-      dbOrder: 'In welcher Reihenfolge du die Doppel spielst. Zufällig wird beim Start ausgelost.',
+      dbOrder: 'In welcher Reihenfolge du die Doppel spielst. Zufällig wird jedes Leg neu ausgelost.',
       dbBull: 'Ja: Bull kommt als letztes Ziel dazu.',
     },
     example: 'Ziel D16. Du triffst 16, D8 und D16. Erst der dritte Dart zählt, dann geht es mit dem nächsten Doppel weiter.',

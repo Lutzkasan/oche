@@ -2,7 +2,11 @@
 // greifen beide darauf zu. MODES füllt modes.js beim Laden, damit ui.js modes.js nicht importieren muss.
 import { dartLabel } from './engine.js';
 
-export const COLORS = ['#e5484d', '#30a46c', '#f5b83d', '#3e9bff', '#b07cf5', '#ff8a3d', '#2ec5b6', '#e86fb0'];
+// 16 Spielerfarben, auf dem dunklen Hintergrund unterscheidbar. Die ersten acht sind die bisherigen.
+export const COLORS = [
+  '#e5484d', '#30a46c', '#f5b83d', '#3e9bff', '#b07cf5', '#ff8a3d', '#2ec5b6', '#e86fb0',
+  '#9bd23c', '#4cc9f0', '#6e6bff', '#d63ce0', '#ffe066', '#b5835a', '#e8e8e8', '#8b9bb4',
+];
 export const MODES = {};
 
 export const S = {
@@ -23,7 +27,9 @@ export const signed = (v) => (v > 0 ? '+' + v : v < 0 ? '−' + -v : '0');
 export const sumBy = (t, k) => t.infos.reduce((a, x) => a + (x[k] || 0), 0);
 export const ALL_NUMS = Array.from({ length: 20 }, (_, i) => i + 1);
 
-export const player = (id) => S.players.find((p) => p.id === id) || { name: '?', color: '#888' };
+// Ein vergessenes Profil gibt es nicht mehr. Seine Spiele bleiben für die Mitspieler, dort steht dieser Platzhalter.
+export const FORGOTTEN = { name: 'Vergessen', color: '#5b6474' };
+export const player = (id) => S.players.find((p) => p.id === id) || FORGOTTEN;
 export const pcolor = (p) => player(S.game.playerIds[p]).color;
 export const pname = (p) => player(S.game.playerIds[p]).name;
 

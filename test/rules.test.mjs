@@ -1,6 +1,6 @@
 // Ausführen mit: node test/rules.test.mjs
 import assert from 'node:assert/strict';
-import { replay, matchLine, canStop, RULES } from '../js/engine.js';
+import { replay, matchLine, canStop, RULES, prepareConfig } from '../js/engine.js';
 import { suggestCheckout } from '../js/checkout.js';
 import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime } from '../js/stats.js';
 import { atcTarget, dblTargets, atcOrder, atcTargets } from '../js/rules/atc.js';
@@ -464,6 +464,52 @@ ok('Follow the Leader: Setzer darf passen, Festlegen daneben kostet ein Leben', 
   assert.deepEqual(st.leg.lives, [2, 3]); assert.equal(st.leg.target, null);
 });
 
+// Regel des Nutzers: erster Treffer legt fest, Runde endet. Ziel getroffen und Darts übrig: nächster Treffer legt neu fest.
+const FLF = (o = {}) => FL({ set: 'first', ...o });
+ok('Follow the Leader (erster Treffer): erster Treffer legt fest und beendet die Runde, daneben zählt nicht', () => {
+  let st = replay(game('follow', FLF(), 2, '- T20'));
+  assert.deepEqual(st.leg.target, { s: 20, m: 3 }); assert.equal(st.current, 1); assert.equal(st.leg.lives[0], 3);
+  // Nur daneben: kein Ziel, kein Leben weniger (ANNAHME), der Nächste legt fest
+  st = replay(game('follow', FLF(), 2, '- - -'));
+  assert.equal(st.leg.target, null); assert.equal(st.current, 1); assert.deepEqual(st.leg.lives, [3, 3]);
+  assert.equal(canStop(replay(game('follow', FLF(), 2, '-'))), false);
+  assert.equal(canStop(replay(game('follow', FL(), 2, '-'))), true); // darts501: Fertig nach dem festlegenden Dart
+});
+
+ok('Follow the Leader (erster Treffer): Ziel getroffen, nächster Treffer legt neu fest', () => {
+  // Ben trifft T20 mit Dart 1, Dart 2 daneben, Dart 3 trifft D5: D5 ist das neue Ziel
+  let st = replay(game('follow', FLF(), 2, 'T20  T20 - D5'));
+  assert.deepEqual(st.leg.target, { s: 5, m: 2 }); assert.equal(st.leg.setter, 1); assert.equal(st.current, 0);
+  // Ben trifft mit Dart 1 und gleich mit Dart 2 neu: Runde endet nach 2 Darts
+  st = replay(game('follow', FLF(), 2, 'T20  T20 19'));
+  assert.deepEqual(st.leg.target, { s: 19, m: 1 }); assert.equal(st.current, 0); assert.equal(st.turns.at(-1).darts.length, 2);
+});
+
+ok('Follow the Leader (erster Treffer): Treffer mit dem letzten Dart oder danach nur daneben, Ziel bleibt', () => {
+  let st = replay(game('follow', FLF(), 2, 'T20  - - T20'));
+  assert.deepEqual(st.leg.target, { s: 20, m: 3 }); assert.equal(st.current, 0); assert.equal(st.leg.setter, 1);
+  st = replay(game('follow', FLF(), 2, 'T20  T20 - -'));
+  assert.deepEqual(st.leg.target, { s: 20, m: 3 }); assert.equal(st.current, 0);
+  // Anna muss jetzt ihr eigenes altes Ziel treffen (Ben gilt als Setzer): Fehlwurf kostet Leben
+  st = replay(game('follow', FLF(), 2, 'T20  - - T20  - - -'));
+  assert.equal(st.leg.lives[0], 2);
+});
+
+ok('Follow the Leader (erster Treffer): verfehlt kostet ein Leben, Ziel bleibt für den Nächsten', () => {
+  const st = replay(game('follow', FLF(), 3, 'T20  - - -'));
+  assert.equal(st.leg.lives[1], 2); assert.deepEqual(st.leg.target, { s: 20, m: 3 }); assert.equal(st.current, 2);
+  const w = replay(game('follow', FLF({ lives: 1 }), 2, 'T20  - - -'));
+  assert.equal(w.finished, true); assert.equal(w.winner, 0);
+});
+
+// Entscheidung des Nutzers (12.11.2026): Das Ziel ist das genaue Feld. Legt jemand T20 fest, zählt nur T20.
+ok('Follow the Leader (erster Treffer): Ziel ist das genaue Feld, eine einfache 20 trifft T20 nicht', () => {
+  let st = replay(game('follow', FLF(), 2, 'T20  20 D20 -'));
+  assert.equal(st.leg.lives[1], 2);
+  st = replay(game('follow', FLF(), 2, 'T20  T20'));
+  assert.equal(st.leg.hitAt, 0); assert.equal(st.leg.lives[1], 3);
+});
+
 ok('Follow the Leader: Letzter mit Leben gewinnt', () => {
   const st = replay(game('follow', FL({ lives: 1 }), 2, 'T20 X  - - -'));
   assert.equal(st.finished, true); assert.equal(st.winner, 0);
@@ -685,9 +731,9 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 5);
+  assert.equal(SCHEMA, 6);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
-  await assert.rejects(importAll({ ...base, schema: 5, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+  await assert.rejects(importAll({ ...base, schema: 6, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
 });
 
 // Ein Lösch-Vermerk hat keinen Modus. Er darf nicht als „unbekannter Modus" gelten, sonst lehnte der Import jede
@@ -775,14 +821,69 @@ ok('Around the Clock: Reihenfolge absteigend (Bull zuerst) und zufällig (Bull i
   assert.equal(st.leg.pos[0], 2); assert.equal(atcTargets(cfg)[st.leg.pos[0]], 18);
 });
 
-ok('Revanche lost Cricket-Zahlen und ATC-Reihenfolge neu aus, Standard bleibt ohne Zufallswerte', async () => {
-  const { MODES } = await import('../js/modes.js');
-  const first = MODES.cricket.prepare({ variant: 'standard', random: true });
-  const draws = new Set(Array.from({ length: 20 }, () => MODES.cricket.prepare({ ...first }).numbers.join()));
+ok('Revanche lost Cricket-Zahlen und ATC-Reihenfolge neu aus, Standard bleibt ohne Zufallswerte', () => {
+  const first = prepareConfig('cricket', { variant: 'standard', random: true }, 2);
+  assert.equal(first.numbers.length, 6); assert.equal(typeof first.seed, 'number');
+  const draws = new Set(Array.from({ length: 20 }, () => prepareConfig('cricket', { ...first }, 2).numbers.join()));
   assert.ok(draws.size > 1);
-  assert.equal(MODES.cricket.prepare({ variant: 'standard', random: false }).numbers, undefined);
-  assert.equal(MODES.atc.prepare({ zone: 'any', bull: false, order: 'asc' }).targets, undefined);
-  assert.equal(MODES.atc.prepare({ zone: 'any', bull: false, order: 'random' }).targets.length, 20);
+  assert.equal(prepareConfig('cricket', { variant: 'standard', random: false }, 2).numbers, undefined);
+  assert.equal(prepareConfig('atc', { zone: 'any', bull: false, order: 'asc' }, 1).targets, undefined);
+  assert.equal(prepareConfig('atc', { zone: 'any', bull: false, order: 'random' }, 1).targets.length, 20);
+  // Gleicher seed, gleiche Werte: Grundlage dafür, dass das Replay deterministisch bleibt
+  assert.deepEqual(prepareConfig('killer', { lives: 3 }, 3, 42).numbers, prepareConfig('killer', { lives: 3 }, 3, 42).numbers);
+});
+
+// Jede Regel mit Auslosung muss mit ihren Setup-Vorgaben ein Leg vorbereiten und starten können.
+// Fängt fehlende Importe und Felder in draw ab (Blind Killer startete beim Umbau auf Zufall je Leg nicht mehr).
+ok('Zufall je Leg: jede Regel mit draw startet mit ihren Vorgaben, auch im zweiten Leg', async () => {
+  const { MODES } = await import('../js/modes.js');
+  const withDraw = Object.entries(RULES).filter(([, r]) => r.draw);
+  assert.ok(withDraw.length >= 8);
+  for (const [mode, rule] of withDraw) {
+    const opts = Object.fromEntries((MODES[mode].opts || []).map(([k, , vals]) => [k, vals.at(-1)[0]]));
+    const base = { ...MODES[mode].config(opts), legs: 2, sets: 1 };
+    const cfg = prepareConfig(mode, MODES[mode].prepare ? MODES[mode].prepare(base, 3) : base, 3);
+    const n = rule.maxPlayers ? Math.min(3, rule.maxPlayers) : 3;
+    const st = replay({ mode, config: cfg, playerIds: Array.from({ length: n }, (_, i) => 'p' + i), darts: [] });
+    assert.ok(st.leg, mode);
+    assert.ok(rule.subtitle(cfg).length, mode);
+  }
+});
+
+// Bisher galt die Auslosung für das ganze Match, jedes Leg startete mit denselben Zahlen.
+ok('Zufall je Leg: Tic-Tac-Toe-Raster wechselt, Replay bleibt gleich, alte Spiele ohne seed behalten ihr Raster', () => {
+  const cfg = prepareConfig('ttt', { need: 1, legs: 5, sets: 1 }, 2, 12345);
+  // Leg für Leg: Wer anwirft, nimmt die obere Reihe. Leg 1 wirft Spieler 1 an, Leg 2 Spieler 2.
+  let darts = '';
+  const grids = [];
+  for (let k = 0; k < 4; k++) {
+    const st = replay(game('ttt', cfg, 2, darts));
+    assert.equal(st.legResults.length, k);
+    grids.push(st.cfg.grid.join());
+    const g = st.cfg.grid;
+    darts += (k % 2 === 0 ? `${g[0]} ${g[1]} ${g[2]}` : `${g[0]} ${g[1]} ${g[2]}`) + '  ';
+  }
+  assert.equal(grids[0], cfg.grid.join()); // Leg 1 = ausgeschriebene Werte
+  assert.ok(new Set(grids).size > 1, 'alle Legs hatten dasselbe Raster');
+  const a = replay(game('ttt', cfg, 2, darts)), b = replay(game('ttt', cfg, 2, darts));
+  assert.equal(a.legResults.length, 4);
+  assert.deepEqual(a.legResults.map((r) => r.cfg.grid.join()), b.legResults.map((r) => r.cfg.grid.join()));
+  assert.deepEqual(a.legResults.map((r) => r.cfg.grid.join()), grids);
+  // Altes Spiel ohne seed: dasselbe Raster in jedem Leg
+  const { seed, ...old } = cfg;
+  const g = old.grid;
+  const o = replay(game('ttt', old, 2, `${g[0]} ${g[1]} ${g[2]}`));
+  assert.equal(o.legResults.length, 1); assert.equal(o.cfg.grid.join(), g.join());
+});
+
+ok('Zufall je Leg: Killer-Zahlen wechseln im zweiten Leg', () => {
+  const cfg = prepareConfig('killer', { lives: 1, zone: 'segment', selfHit: true, legs: 2, sets: 1 }, 2, 777);
+  const [a, b] = cfg.numbers;
+  // Spieler 1 wird Killer (Triple auf die eigene Zahl) und nimmt Spieler 2 das einzige Leben
+  const st = replay(game('killer', cfg, 2, `T${a} ${b}`));
+  assert.equal(st.legResults.length, 1);
+  assert.equal(st.legResults[0].cfg.numbers.join(), cfg.numbers.join());
+  assert.notEqual(st.cfg.numbers.join(), cfg.numbers.join());
 });
 
 ok('Around the Clock: D/T springt nie über ein Bull mitten in der Folge', () => {

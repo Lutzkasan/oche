@@ -77,7 +77,9 @@ small { color: var(--muted); font-weight: 400; }
 
 .add-player { grid-template-columns: 1fr auto auto; align-items: center; }
 .add-player input, .dlg input { background: var(--bg); border: 1px solid var(--line-2); color: var(--text); border-radius: 10px; padding: .8em 1em; font: inherit; min-width: 0; }
-.swatches { display: flex; gap: 6px; }
+.swatches { display: grid; grid-template-columns: repeat(8, 30px); gap: 6px; }
+.dlg .swatches { margin: 4px 0 14px; grid-template-columns: repeat(8, 34px); }
+.dlg .sw { width: 34px; height: 34px; }
 .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; background: var(--pc); }
 .sw.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg) inset; }
 

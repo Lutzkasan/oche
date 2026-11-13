@@ -76,6 +76,8 @@ export const atc = {
   title: () => 'Around the Clock',
   subtitle: (cfg) => ZONE[cfg.zone].label + (cfg.bull ? ' · mit Bull' : '') + (cfg.order === 'desc' ? ' · absteigend' : cfg.order === 'random' ? ' · zufällig' : ''),
   defaults: { zone: 'any', bull: false },
+  // Absteigend und zufällig als ausgeschriebene Zielfolge, zufällig jedes Leg neu
+  draw: (cfg, n, rnd) => { const t = atcOrder(cfg.order, cfg.bull, rnd); return t ? { targets: t } : {}; },
 
   initLeg: posLeg,
 
@@ -112,6 +114,7 @@ export const dbl = {
   title: () => 'Doppel-Training',
   subtitle: (cfg) => ORDER[cfg.order] + (cfg.bull ? ' · mit Bull' : ''),
   defaults: { zone: 'double', order: 'asc', bull: false },
+  draw: (cfg, n, rnd) => ({ targets: dblTargets(cfg.order, cfg.bull, rnd) }),
 };
 
 // ---------- Chase the Dragon ----------

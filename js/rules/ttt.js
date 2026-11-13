@@ -1,5 +1,5 @@
 // Tic-Tac-Toe (Noughts and Crosses): 3×3-Raster, Bull in der Mitte, acht ausgeloste Zahlen außen
-// (Darts Corner, Arachnid). Die Zahlen stehen in cfg.grid, beim Start einmal ausgelost.
+// (Darts Corner, Arachnid). Die Zahlen stehen in cfg.grid, jedes Leg neu ausgelost (draw).
 // Ein Feld gehört dem Spieler, der zuerst genug Marks darauf hat. Drei Felder in einer Reihe gewinnen.
 // need: 1 = ein Treffer nimmt das Feld (Pub-Regel nach darts501 und World Dolf Federation)
 //       4 = vier Marks, S/D/T = 1/2/3, 25 = 1, Bull = 2 (Phoenix, Granboard, Arachnid)
@@ -25,6 +25,7 @@ export const ttt = {
   minPlayers: 2,
   maxPlayers: 2,
 
+  draw: (cfg, n, rnd) => ({ grid: drawGrid(rnd) }),
   initLeg: (cfg, n) => ({ owner: Array(9).fill(-1), marks: Array.from({ length: n }, () => Array(9).fill(0)) }),
 
   score: (leg, p) => leg.owner.filter((o) => o === p).length,

@@ -1,5 +1,13 @@
-// Follow the Leader (darts501, Darts Corner): Ein Dart legt das Zielfeld fest (Zahl und Ring).
+// Follow the Leader: Ein Dart legt das Zielfeld fest (Zahl und Ring).
 // Der Nächste muss genau dieses Feld mit einem seiner drei Darts treffen, sonst verliert er ein Leben.
+// Zwei Arten festzulegen (cfg.set):
+// 'first' (Kneipenregel, Vorgabe des Nutzers, Standard ab 0.6.1): Der erste Treffer legt fest, die Runde endet damit.
+//   Ziel ist auch hier das genaue Feld (Nutzer bestätigt: T20 festgelegt, nur T20 zählt).
+//   Daneben legt nichts fest. Wer das Ziel trifft und noch Darts hat, legt mit seinem nächsten Treffer neu fest.
+//   Trifft er das Ziel mit dem letzten Dart oder danach nur daneben, bleibt das Ziel stehen.
+//   ANNAHME: Wirft der Setzer zu Beginn nur daneben, gibt es kein Ziel und kein Leben weniger.
+//   Der Nächste legt fest. Der Nutzer hat diesen Fall nicht beschrieben.
+// fehlt (Spiele vor 0.6.1) oder 'last' (darts501, Darts Corner):
 //   Treffer mit Dart 1 oder 2: Der letzte der übrigen Darts legt das neue Ziel fest. Wer danach mit „Fertig"
 //     aufhört, legt mit dem zuletzt geworfenen Dart fest. Ohne weiteren Dart bleibt das Ziel stehen.
 //   Treffer mit Dart 3: Der Spieler wirft eine zusätzliche Aufnahme, deren letzter Dart das Ziel festlegt.
@@ -15,7 +23,7 @@ export const alive = (leg) => leg.lives.map((l, i) => (l > 0 ? i : -1)).filter((
 export const follow = {
   id: 'follow',
   title: () => 'Follow the Leader',
-  subtitle: (cfg) => `${cfg.lives} Leben`,
+  subtitle: (cfg) => `${cfg.lives} Leben${cfg.set === 'first' ? '' : ' · letzter Dart legt fest'}`,
   defaults: { lives: 3 },
   minPlayers: 2,
 
@@ -39,13 +47,22 @@ export const follow = {
       }
       return info;
     }
+    if (cfg.set === 'first') {
+      if (!d.s) return info; // daneben legt nichts fest
+      leg.setDart = { s: d.s, m: d.m };
+      info.sets = true;
+      info.endTurn = true;
+      return info;
+    }
     leg.setDart = { s: d.s, m: d.s ? d.m : 1 };
     info.sets = true;
     return info;
   },
 
-  // Aufhören ist erlaubt, sobald es nichts mehr zu treffen gibt: beim Festlegen oder nach dem Treffer
-  canStop: (leg, p, cfg, turn) => turn.darts.length > 0 && turn.darts.length < 3 && (leg.mode === 'set' || leg.hitAt >= 0),
+  // Aufhören ist erlaubt, sobald es nichts mehr zu treffen gibt: beim Festlegen oder nach dem Treffer.
+  // Bei „erster Treffer" endet die Runde mit dem Festlegen von selbst, „Fertig" braucht es dort nicht.
+  stops: (cfg) => cfg.set !== 'first',
+  canStop: (leg, p, cfg, turn) => cfg.set !== 'first' && turn.darts.length > 0 && turn.darts.length < 3 && (leg.mode === 'set' || leg.hitAt >= 0),
 
   turnEnd(leg, p, cfg, turn) {
     const lose = () => {
@@ -60,6 +77,17 @@ export const follow = {
       leg.setter = p;
       return null;
     };
+    if (cfg.set === 'first') {
+      if (leg.mode === 'set') {
+        if (leg.setDart) { leg.target = leg.setDart; leg.setter = p; }
+        return null;
+      }
+      if (leg.hitAt < 0) return leg.setter === p ? null : lose();
+      turn.hitTarget = true;
+      if (leg.setDart) leg.target = leg.setDart; // sonst bleibt das Ziel stehen
+      leg.setter = p;
+      return null;
+    }
     if (leg.mode === 'set') return setFrom(leg.setDart);
     if (leg.hitAt < 0) return leg.setter === p ? null : lose();
     turn.hitTarget = true;

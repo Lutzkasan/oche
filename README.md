@@ -59,7 +59,7 @@ Wo sich Quellen widersprechen, ist die Abweichung eine Setup-Option. Wo keine Qu
 - Around the Clock, Reihenfolge: aufsteigend, absteigend mit Bull zuerst, zufällig mit Bull an beliebiger Stelle (dartcounter.net). D/T springt nie über Bull hinweg.
 - Tic-Tac-Toe: 1 Treffer je Feld (darts501, World Dolf Federation) oder 4 Marks (Phoenix, Granboard, Arachnid). Volles Raster ohne Reihe: mehr Felder gewinnt (Phoenix). Ein Unentschieden kennt die Engine nicht.
 - Hare and Hounds: Hunde starten auf 5 (Darts Corner, WDF) oder 12 (darts501). Double/Triple 1 Feld (WDF) oder 2/3 Felder (Tiny Monkey). Einholen (WDF) oder Überholen (darts501).
-- Follow the Leader: Ablauf nach darts501 und Darts Corner, 3 oder 5 Leben. Single innen und außen kann die Eingabe nicht trennen.
+- Follow the Leader: Standard ist die Kneipenregel „erster Treffer": Der erste Treffer legt das Ziel fest und beendet die Runde. Wer das Ziel trifft und noch Darts hat, legt mit dem nächsten Treffer neu fest, sonst bleibt das Ziel stehen. Als Option „letzter Dart" nach darts501 und Darts Corner. 3 oder 5 Leben. Single innen und außen kann die Eingabe nicht trennen.
 - Chase the Dragon: 1 oder 3 Durchgänge (darts501 „Three-headed Dragon").
 - Golf: Schlagtabelle D1/T2/S3/5 (GLD Products) oder D1/T3/S4/5 (darthelp). Letzter Dart mit Aufhören (beide Quellen) oder bester Dart. Stechen über weitere Löcher, die Quellen schweigen dazu.
 - Knockout: Vorwerfer schlagen (Darts Corner) oder Höchstwert des Legs (darts501), 3 oder 5 Striche.
@@ -73,7 +73,7 @@ Wo sich Quellen widersprechen, ist die Abweichung eine Setup-Option. Wo keine Qu
 - Shooting Gallery: Punktetabelle nach GoDartsPro. Überwerfen regelt die Quelle nicht, hier wie in X01.
 
 Weitere Details:
-- Zufallswerte (Cricket-Zufallszahlen, Around the Clock „Zufällig", Killer- und Blind-Killer-Zahlen, Tic-Tac-Toe-Raster, Halve-It „Zufall", Doppel-Training „Zufällig") werden beim Start einmal ausgelost und im Spiel gespeichert. Revanche lost neu aus.
+- Zufallswerte (Cricket-Zufallszahlen, Around the Clock „Zufällig", Killer- und Blind-Killer-Zahlen, Tic-Tac-Toe-Raster, Halve-It „Zufall", Doppel-Training „Zufällig") werden für jedes Leg neu ausgelost. Das Spiel speichert dafür einen Startwert (`seed`), daraus entstehen die Werte jedes Legs immer gleich. Spiele vor 0.6.1 haben keinen Startwert und behalten ihre Werte für alle Legs.
 - Golf und Follow the Leader zeigen eine Taste „Fertig". Sie beendet die Runde vor dem dritten Dart und wird als Stopp-Eintrag gespeichert. Rückgängig nimmt sie zurück.
 - Mit einem Spieler heißt das Siegerfenster „Leg beendet" bzw. „Match beendet".
 
@@ -81,10 +81,10 @@ Weitere Details:
 
 - Alles liegt im Browserspeicher (IndexedDB) des Tablets. Jeder einzelne Dart wird gespeichert, Statistiken werden daraus berechnet.
 - **Daten → Teilen** schickt die Sicherung per Mail, WhatsApp, Google Drive oder an jede andere App im Android-Teilen-Menü. Sie geht als `.txt` hinaus: Chrome teilt nur Dateitypen von seiner Freigabeliste, `.json` steht nicht darauf. Der Inhalt ist JSON. **Als Datei speichern** legt dieselbe Sicherung als `.json` ab. **Daten → Sicherung importieren** auf dem neuen Tablet liest beide und holt alles zurück. Mehrfaches Importieren legt nichts doppelt an.
-- **Profile**: Ein Profil mit Spielen wird archiviert, nicht gelöscht. Es fehlt dann in Spielerauswahl und Statistik, seine Spiele zählen weiter, auch für die Mitspieler. Unter **Spieler → Archiviert** holst du es zurück. Ein Profil ohne Spiele wird gelöscht.
+- **Profile**: **Bearbeiten** ändert Name und Farbe (16 Farben). Ein Profil mit Spielen wird archiviert, nicht gelöscht. Es fehlt dann in Spielerauswahl und Statistik, seine Spiele zählen weiter, auch für die Mitspieler. Der Knopf **Archiv** auf der Spielerseite öffnet das Archiv. Dort holst du ein Profil zurück oder **vergisst** es: Es wird endgültig gelöscht, gemeinsame Spiele bleiben beim Mitspieler mit dem Namen „Vergessen". Ein Profil ohne Spiele wird direkt gelöscht.
 - **Spiele aus der Wertung nehmen**: In der Statistik listet „Spiele" alle Spiele im Filter. **Nicht werten** nimmt ein Spiel aus allen Kennzahlen, für alle Spieler. Es bleibt sichtbar und lässt sich mit **Wieder werten** zurückholen.
 - **Löschen** (Spiel im Spielmenü, Profil ohne Spiele) hinterlässt einen Lösch-Vermerk. Er reist mit der Sicherung und gewinnt gegen ältere Kopien. Ohne ihn käme ein gelöschter Eintrag mit jeder älteren Sicherung zurück.
-- Sicherungen ab Version 0.6.0 tragen Schema 5 (0.5.0: 4, 0.4.0: 3, 0.3.0: 2). Eine ältere App lehnt sie mit dem Hinweis „zuerst aktualisieren" ab, statt Lösch-Vermerke als Spiele zu lesen. Ab 0.4.0 prüft der Import zusätzlich jeden Spielmodus einzeln.
+- Sicherungen ab Version 0.6.1 tragen Schema 6 (0.6.0: 5, 0.5.0: 4, 0.4.0: 3, 0.3.0: 2). Eine ältere App lehnt sie mit dem Hinweis „zuerst aktualisieren" ab, statt Lösch-Vermerke als Spiele zu lesen oder Legs mit falschen Zufallswerten nachzuspielen. Ab 0.4.0 prüft der Import zusätzlich jeden Spielmodus einzeln.
 - Grenze: Löschst du in Chrome die Website-Daten oder deinstallierst die App, sind die Daten auf dem Gerät weg. Nur die Sicherung schützt davor. Die App erinnert nach 7 Tagen mit neuen Spielen an eine Sicherung.
 
 ## Aufbau
@@ -121,7 +121,7 @@ Weitere Details:
 3. In `modes.js` einen Eintrag in `MODES` anlegen (Gruppe, Optionen, `config`, Spielbrett, Tasten, Overlay, Statistik-Abschnitt).
 4. In `help.js` die Erklärung schreiben, in `stats.js` den `STATS`-Eintrag, in `test/rules.test.mjs` die Regeln testen.
 5. In `db.js` `SCHEMA` um eins erhöhen. Apps bis 0.3.0 prüfen nur diese Nummer.
-6. Zufallswerte nie in der Regel auslosen, sondern in `prepare` (modes.js) und in `config` speichern. Sonst ergibt das Replay bei jedem Laden ein anderes Spiel.
+6. Zufallswerte nur über `draw(cfg, n, rnd)` in der Regel auslosen, mit dem übergebenen `rnd`. Die Engine ruft `draw` je Leg mit einem Generator aus `config.seed` auf. `Math.random` in einer Regel ergäbe bei jedem Laden ein anderes Spiel.
 
 Den Offline-Cache ergänzt der Build selbst.
 

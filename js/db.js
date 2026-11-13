@@ -12,7 +12,9 @@ const DB_VERSION = 1;
 // 5 = Lösch-Vermerke { id, deleted: true, updatedAt }, Spiele mit excluded (nicht gewertet), Cricket mit
 //     Zufallszahlen (config.numbers), Around the Clock mit Reihenfolge (config.targets). Eine App mit Schema 4
 //     würde Lösch-Vermerke als Spiele ohne Modus lesen und ausgenommene Spiele mitzählen. Deshalb lehnt sie ab.
-export const SCHEMA = 5;
+// 6 = config.seed: Zufallswerte je Leg (Killer, Tic-Tac-Toe, Cricket-Zufall …). Eine App mit Schema 5 würde
+//     alle Legs mit den Werten des ersten Legs nachspielen und so andere Spielstände errechnen.
+export const SCHEMA = 6;
 
 // Löschen hinterlässt einen Lösch-Vermerk statt den Eintrag zu entfernen. Grund: Der Import führt nach ID
 // zusammen. Ein spurlos gelöschter Eintrag käme mit jeder älteren Sicherung zurück. Der Vermerk trägt ein

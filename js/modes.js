@@ -1,7 +1,7 @@
 // Alles, was die Oberfläche je Modus braucht, an einer Stelle. Spielregeln liegen in js/rules/, Erklärtexte in help.js.
 //   label, group      Name und Gruppe im Modusmenü (classic, party, training)
 //   opts              Setup-Optionen [Schlüssel, Beschriftung, [[Wert, Text], …], Vorgabe]. Ohne Vorgabe gilt der erste Wert.
-//   config(setup)     Regelparameter                  prepare(cfg, n)  Werte je Match, beim Start einmal ausgelost (optional)
+//   config(setup)     Regelparameter                  prepare(cfg, n)  Vorbereitung je Match (optional). Zufall je Leg: draw in der Regel
 //   board(st)         Spielbrett                      nums(st)         Zahlentasten
 //   targets(st)       hervorgehobene Tasten [[Zahl, Farbe]]            mult(st) Doppel/Triple-Taste markieren (2/3)
 //   turnSum(turn, st) Summenfeld der Runde (3 Darts)         homeScore(st, p) Stand in „Laufende Spiele"
@@ -9,13 +9,11 @@
 //   stats(s, h)       Abschnitt in der Statistik (s = Zähler aus stats.js, h = Bausteine aus app.js)
 import { matchLine, dartLabel } from './engine.js';
 import { suggestCheckout } from './checkout.js';
-import { atcTargets, atcOrder, chaseTargets, chaseLabel, dblTargets } from './rules/atc.js';
+import { atcTargets, chaseTargets, chaseLabel } from './rules/atc.js';
 import { shanghaiTarget } from './rules/shanghai.js';
-import { drawNumbers } from './rules/killer.js';
 import { bobsTarget } from './rules/bobs.js';
-import { HALVE_SETS, BERMUDA, drawHalveTargets, halveTarget, halveLabel, halveKey } from './rules/halveit.js';
-import { NEED, cricketRows, drawCricketNumbers } from './rules/cricket.js';
-import { drawGrid } from './rules/ttt.js';
+import { HALVE_SETS, BERMUDA, halveTarget, halveLabel, halveKey } from './rules/halveit.js';
+import { NEED, cricketRows } from './rules/cricket.js';
 import { ROUTE, hareTarget } from './rules/hare.js';
 import { golfHole, golfTarget } from './rules/golf.js';
 import { jdcVisit, jdcDartTarget, jdcGrade } from './rules/jdc.js';
@@ -374,11 +372,8 @@ Object.assign(MODES, {
       ['crNums', 'Zahlen', [['std', '15–20 + Bull'], ['random', 'Zufall: 6 + Bull']]],
     ],
     config: (s) => ({ variant: s.variant, random: s.crNums === 'random' }),
-    // Zufallszahlen beim Start auslosen. Revanche ruft prepare erneut auf und lost neu aus.
-    prepare: (cfg) => {
-      const { random, numbers, ...rest } = cfg;
-      return random ? { ...rest, random, numbers: drawCricketNumbers() } : rest;
-    },
+    // Revanche übernimmt die alte config. Ohne Zufall darf keine alte Zahlenliste mitreisen.
+    prepare: (cfg) => { const { numbers, ...rest } = cfg; return rest; },
     board: boardMarks,
     nums: (st) => cricketRows(st.cfg).filter((r) => r.value && r.value !== 25).map((r) => r.value),
     turnSum: marksSum,
@@ -396,7 +391,6 @@ Object.assign(MODES, {
       ['kSelf', 'Eigene Zahl als Killer', [[1, 'Kostet Leben'], [0, 'Zählt nicht']]],
     ],
     config: (s) => ({ lives: s.kLives, zone: s.kZone, selfHit: Boolean(s.kSelf) }),
-    prepare: (cfg, n) => ({ ...cfg, numbers: drawNumbers(n) }),
     board: boardKiller,
     targets: (st) => {
       if (!st.turn) return [];
@@ -421,14 +415,14 @@ Object.assign(MODES, {
       ['bkTriple', 'Triple', [[0, 'Zählt nicht'], [1, 'Kostet 2 Leben']]],
     ],
     config: (s) => ({ lives: s.bkLives, triple: Boolean(s.bkTriple) }),
-    prepare: (cfg, n) => ({ ...cfg, numbers: drawNumbers(n) }),
     board: boardBlind,
     targets: (st) => (st.turn ? st.cfg.numbers.filter((nr, q) => st.leg.lives[q] > 0).map((nr) => [nr, 'var(--gold)']) : []),
     mult: (st) => (st.turn ? 2 : 0),
     turnSum: (t) => { const k = sumBy(t, 'taken') + sumBy(t, 'lost'); return k ? '−' + k : '0'; },
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? 'im Spiel' : 'raus'),
     col: ['−Leben', (ml) => ml.taken],
-    overlaySub: (st) => `<p class="ov-sub">Zahlen: ${S.game.playerIds.map((_, q) => `${esc(pname(q))} ${st.cfg.numbers[q]}`).join(' · ')}</p>`,
+    // Am Leg-Ende ist st.cfg schon das nächste Leg. Die aufgedeckten Zahlen stehen beim beendeten Leg.
+    overlaySub: (st) => `<p class="ov-sub">Zahlen: ${S.game.playerIds.map((_, q) => `${esc(pname(q))} ${st.legResults.at(-1).cfg.numbers[q]}`).join(' · ')}</p>`,
     stats: (b, h) => `<div class="stats">
       ${h.tile('Doppeltreffer', pct(b.hitRate), `${b.hits} von ${b.darts} Darts auf Zahlen im Spiel`)}
       ${h.tile('Leben genommen', b.taken, `${num(b.takenPerLeg, 1)} je Leg`)}
@@ -440,7 +434,6 @@ Object.assign(MODES, {
     label: 'Tic-Tac-Toe', group: 'party',
     opts: [['tNeed', 'Feld nehmen mit', [[1, '1 Treffer'], [4, '4 Marks']]]],
     config: (s) => ({ need: s.tNeed }),
-    prepare: (cfg) => ({ ...cfg, grid: drawGrid() }),
     board: boardTtt,
     nums: (st) => st.cfg.grid.filter((v) => v !== 25).sort((a, b) => a - b),
     targets: (st) => (st.turn ? st.cfg.grid.filter((v, i) => st.leg.owner[i] < 0 && v !== 25).map((v) => [v, pcolor(st.current)]) : []),
@@ -467,8 +460,11 @@ Object.assign(MODES, {
   },
   follow: {
     label: 'Follow the Leader', group: 'party',
-    opts: [['flLives', 'Leben', [[3, '3'], [5, '5']]]],
-    config: (s) => ({ lives: s.flLives }),
+    opts: [
+      ['flSet', 'Ziel festlegen', [['first', 'Erster Treffer'], ['last', 'Letzter Dart (darts501)']]],
+      ['flLives', 'Leben', [[3, '3'], [5, '5']]],
+    ],
+    config: (s) => ({ lives: s.flLives, set: s.flSet }),
     board: boardFollow,
     targets: (st) => (hunting(st) ? one(st, st.leg.target.s) : []),
     mult: (st) => (hunting(st) && st.leg.target.m > 1 ? st.leg.target.m : 0),
@@ -572,7 +568,7 @@ Object.assign(MODES, {
       ['hRound', 'Halbieren', [['up', 'Aufrunden'], ['down', 'Abrunden']]],
     ],
     config: (s) => ({ set: s.hSet, round: s.hRound }),
-    prepare: (cfg) => ({ ...cfg, targets: cfg.set === 'random' ? drawHalveTargets() : [...HALVE_SETS[cfg.set]] }),
+    prepare: (cfg) => ({ ...cfg, targets: cfg.set === 'random' ? [] : [...HALVE_SETS[cfg.set]] }),
     board: boardHalveit,
     targets: (st) => { const k = st.turn && halveKey(halveTarget(st.leg, st.current, st.cfg)); return k ? one(st, k) : []; },
     mult: (st) => { const t = st.turn && halveTarget(st.leg, st.current, st.cfg); return t === 'D' || t === 'DB' ? 2 : t === 'T' ? 3 : 0; },
@@ -646,12 +642,7 @@ Object.assign(MODES, {
       ['atcZone', 'Treffer', [['any', 'Jedes Feld'], ['skip', 'D/T springt'], ['double', 'Nur Doppel'], ['triple', 'Nur Triple']]],
     ],
     config: (s) => ({ zone: s.atcZone, bull: Boolean(s.atcBull), order: s.atcOrder }),
-    // Absteigend und zufällig als ausgeschriebene Zielfolge, zufällig neu ausgelost bei jeder Revanche
-    prepare: (cfg) => {
-      const { targets, ...rest } = cfg;
-      const t = atcOrder(cfg.order, cfg.bull);
-      return t ? { ...rest, targets: t } : rest;
-    },
+    prepare: (cfg) => { const { targets, ...rest } = cfg; return rest; },
     board: boardAtc,
     targets: (st) => { const t = st.turn && atcTargets(st.cfg)[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
     turnSum: advSum,
@@ -667,7 +658,6 @@ Object.assign(MODES, {
       ['dbBull', 'Bull am Ende', [[0, 'Nein'], [1, 'Ja']]],
     ],
     config: (s) => ({ zone: 'double', order: s.dbOrder, bull: Boolean(s.dbBull) }),
-    prepare: (cfg) => ({ ...cfg, targets: dblTargets(cfg.order, cfg.bull) }),
     board: boardDbl,
     targets: (st) => { const t = st.turn && atcTargets(st.cfg)[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
     mult: (st) => (st.turn ? 2 : 0),

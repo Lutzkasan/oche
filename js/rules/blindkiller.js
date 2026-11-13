@@ -5,7 +5,7 @@
 // Der Letzte gewinnt.
 // lives: 3 (darts501, Darts Corner) oder 5 (Tiny Monkey Games)
 // triple: true = ein Triple kostet zwei Leben (Tiny Monkey Games), false = nur Doppel zählen
-import { alive } from './killer.js';
+import { alive, drawNumbers } from './killer.js';
 
 export const blindkiller = {
   id: 'blindkiller',
@@ -14,6 +14,7 @@ export const blindkiller = {
   defaults: { lives: 3, triple: false },
   minPlayers: 2,
 
+  draw: (cfg, n, rnd) => ({ numbers: drawNumbers(n, rnd) }),
   initLeg: (cfg, n) => ({ lives: Array(n).fill(cfg.lives) }),
 
   score: (leg, p) => leg.lives[p],

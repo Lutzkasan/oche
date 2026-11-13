@@ -14,7 +14,13 @@
 //             canStop(leg, p, cfg, turn)  true = der Werfer darf die Aufnahme vor dem dritten Dart beenden.
 //                                  Die App zeigt dann die Taste „Fertig". Sie speichert einen Stopp-Eintrag
 //                                  { s: 0, m: 0, stop: true } in der Dartliste. Er zählt nicht als Dart.
+//             stops(cfg)           false = in dieser Einstellung gibt es kein Aufhören, die App blendet „Fertig“ aus
 //             minPlayers, maxPlayers   Spielerzahl, die das Setup zum Start verlangt
+//             draw(cfg, n, rnd)    Werte, die jedes Leg neu bekommt (Killer-Zahlen, TTT-Raster, Zielfolgen).
+//                                  rnd ist ein Zufallsgenerator aus config.seed und der Leg-Nummer. Damit lost
+//                                  jedes Leg neu aus, und das Replay ergibt trotzdem immer dasselbe Spiel.
+//                                  Leg 1 steht zusätzlich ausgeschrieben in der config (Anzeige, Spielliste).
+//                                  Spiele ohne seed (vor 0.6.1) behalten ihre Werte für alle Legs.
 // Rundenspiele mit Stechen teilen sich die Auswertung in rules/rounds.js.
 import { x01 } from './rules/x01.js';
 import { cricket, mickey, shove } from './rules/cricket.js';
@@ -42,12 +48,39 @@ export const RULES = {
 
 const zeros = (n) => Array(n).fill(0);
 
+// ---------- Zufall je Leg ----------
+export const newSeed = () => Math.floor(Math.random() * 2 ** 32) >>> 0;
+
+// Deterministischer Zufallsgenerator (mulberry32) für Leg idx eines Spiels
+function prng(seed, idx) {
+  let a = (seed ^ Math.imul(idx + 1, 0x9e3779b9)) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Regelparameter für Leg idx (0 = erstes Leg des Matches)
+export function legConfig(rule, cfg, n, idx) {
+  return rule.draw && cfg.seed != null ? { ...cfg, ...rule.draw(cfg, n, prng(cfg.seed, idx)) } : cfg;
+}
+
+// Beim Start und bei der Revanche: neuer seed, Werte des ersten Legs ausgeschrieben
+export function prepareConfig(mode, cfg, n, seed = newSeed()) {
+  const rule = RULES[mode];
+  return rule.draw ? legConfig(rule, { ...cfg, seed }, n, 0) : cfg;
+}
+
 export function replay(game) {
   const rule = RULES[game.mode];
-  const cfg = game.config;
+  const base = game.config;
   const n = game.playerIds.length;
+  const cfg = legConfig(rule, base, n, 0);
   const st = {
-    rule, cfg, n,
+    rule, cfg, base, n, legIdx: 0,
     sets: zeros(n), legs: zeros(n),
     setNo: 1, legNo: 1,
     legStarter: 0, current: 0,
@@ -127,7 +160,7 @@ function closeTurn(st, p, info) {
 
 function legWon(st, p) {
   const scores = Array.from({ length: st.n }, (_, q) => st.rule.score(st.leg, q));
-  st.legResults.push({ winner: p, legNo: st.legNo, setNo: st.setNo, darts: [...st.legDarts], scores });
+  st.legResults.push({ winner: p, legNo: st.legNo, setNo: st.setNo, darts: [...st.legDarts], scores, cfg: st.cfg });
   st.legs[p]++;
   if (st.legs[p] >= st.cfg.legs) {
     st.sets[p]++;
@@ -147,6 +180,8 @@ function legWon(st, p) {
   st.current = st.legStarter;
   st.round = zeros(st.n);
   st.legDarts = zeros(st.n);
+  st.legIdx++;
+  st.cfg = legConfig(st.rule, st.base, st.n, st.legIdx);
   st.leg = st.rule.initLeg(st.cfg, st.n, st.legStarter);
   st.turn = newTurn(st);
 }

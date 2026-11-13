@@ -5,7 +5,7 @@
 //
 // Cricket: 15–20 und Bull. Mit Zufallszahlen (DARTSLIVE „Random Cricket"): sechs ausgeloste Zahlen und Bull,
 //   sonst wie Standard Cricket. ANNAHME: Ausgelost wird aus 1–20, DARTSLIVE nennt keinen Bereich. Die Zahlen
-//   stehen in config.numbers, beim Start einmal ausgelost, damit das Replay deterministisch bleibt.
+//   stehen in cfg.numbers, jedes Leg neu ausgelost (draw, deterministisch aus config.seed).
 //   standard:  Überzählige Marks zählen Punkte für dich, solange ein Gegner das Feld offen hat. Höchste Punktzahl gewinnt.
 //   cutthroat: Überzählige Marks zählen für alle offenen Gegner. Niedrigste Punktzahl gewinnt.
 // Mickey Mouse: 20 bis 12 und Bull, optional jedes Doppel und jedes Triple als eigene Felder.
@@ -114,6 +114,7 @@ export const cricket = {
   subtitle: (cfg) => (cfg.variant === 'cutthroat' ? 'Cut-Throat' : 'Standard') + (cfg.numbers ? ' · Zufall ' + cfg.numbers.join(' ') : ''),
   defaults: { variant: 'standard' },
   rows: cricketRows,
+  draw: (cfg, n, rnd) => (cfg.random ? { numbers: drawCricketNumbers(rnd) } : {}),
   initLeg: (cfg, n) => initMarks(cricketRows(cfg), n),
   score: (leg, p) => leg.score[p],
   applyDart: (leg, p, d, cfg) => applyMarks(leg, p, d, cricketRows(cfg), { points: cfg.variant === 'cutthroat' ? 'cutthroat' : 'standard' }),

@@ -52,6 +52,8 @@ export const halveit = {
   title: () => 'Halve-It',
   subtitle: (cfg) => `${{ std: 'Standard', short: 'Kurz', random: 'Zufall' }[cfg.set] || 'Eigene Folge'} · ${cfg.targets.length} Runden${cfg.round === 'down' ? ' · abgerundet' : ''}`,
   defaults: { set: 'std', round: 'up' },
+  // Nur „Zufall" lost je Leg neu. Bermuda erbt draw und hat kein set, bekommt also nichts Neues.
+  draw: (cfg, n, rnd) => (cfg.set === 'random' ? { targets: drawHalveTargets(rnd) } : {}),
 
   initLeg: (cfg, n) => ({ ...roundsLeg(n, cfg.targets.length), score: Array(n).fill(0), turnHit: false }),
 
