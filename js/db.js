@@ -14,7 +14,8 @@ const DB_VERSION = 1;
 //     würde Lösch-Vermerke als Spiele ohne Modus lesen und ausgenommene Spiele mitzählen. Deshalb lehnt sie ab.
 // 6 = config.seed: Zufallswerte je Leg (Killer, Tic-Tac-Toe, Cricket-Zufall …). Eine App mit Schema 5 würde
 //     alle Legs mit den Werten des ersten Legs nachspielen und so andere Spielstände errechnen.
-export const SCHEMA = 6;
+// 7 = Modi baseball, fives, steeples, war, scram.
+export const SCHEMA = 7;
 
 // Löschen hinterlässt einen Lösch-Vermerk statt den Eintrag zu entfernen. Grund: Der Import führt nach ID
 // zusammen. Ein spurlos gelöschter Eintrag käme mit jeder älteren Sicherung zurück. Der Vermerk trägt ein
@@ -110,6 +111,19 @@ export function mergeItems(existing, incoming) {
     if (isDeleted(item)) { if (cur && !isDeleted(cur)) removed++; } else added++;
   }
   return { puts, added, removed };
+}
+
+// Zurücksetzen: leert Spieler, Spiele (samt Lösch-Vermerken) und Meta-Daten. Eine danach importierte
+// Sicherung bringt alles zurück, denn ohne Lösch-Vermerke gewinnt beim Zusammenführen jeder Eintrag.
+// Das ist gewollt: So stellt eine Sicherung den alten Stand wieder her.
+export async function resetAll() {
+  const db = await open();
+  await new Promise((resolve, reject) => {
+    const t = db.transaction(['players', 'games', 'meta'], 'readwrite');
+    for (const s of ['players', 'games', 'meta']) t.objectStore(s).clear();
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
 }
 
 // Fordert dauerhaften Speicher an, damit Android die Daten bei Speichermangel nicht räumt.

@@ -304,6 +304,64 @@ export const STATS = {
     },
     fin(ga) { finEnds(ga); ga.rate = rate(ga.checks, ga.attempts); ga.dartsPerCheck = rate(ga.checkDarts, ga.checks); },
   },
+
+  baseball: {
+    init: () => ({ ...ends(), runs: 0, perfect: 0 }),
+    add(b, ctx) {
+      addEnds(b, ctx);
+      b.runs += ctx.myTurns.reduce((m, t) => m + t.points, 0);
+      b.perfect += ctx.myTurns.filter((t) => t.points === 9).length;
+    },
+    fin(b) { finEnds(b); b.ppi = rate(b.runs, b.turns); },
+  },
+
+  fives: {
+    init: () => ({ ...base(), turns: 0, points: 0, fives: 0, busts: 0 }),
+    add(f, ctx) {
+      const pts = ctx.myTurns.reduce((m, t) => m + t.points, 0);
+      f.turns += ctx.myTurns.length;
+      f.points += pts;
+      f.fives += ctx.myTurns.filter((t) => t.infos[2]?.five).length;
+      f.busts += ctx.myTurns.filter((t) => t.bust).length;
+      if (ctx.myTurns.length) push(f, ctx, pts / ctx.myTurns.length);
+    },
+    fin(f) { f.ppr = rate(f.points, f.turns); f.fiveRate = rate(f.fives, f.turns); },
+  },
+
+  steeples: hitMode({
+    init: () => ({ backs: 0 }),
+    add: (a, ctx) => { a.backs += ctx.myTurns.filter((t) => t.back).length; },
+    fin: (a) => { a.backsPerLeg = rate(a.backs, a.legs); },
+  }),
+
+  war: {
+    init: () => ({ ...base(), hits: 0, fields: 0, finishedLegs: 0, captures: 0, recaptures: 0 }),
+    add(w, ctx) {
+      w.hits += hitsOf(ctx);
+      w.captures += ctx.myDarts.filter((d) => d.capture !== undefined && !d.recapture).length;
+      w.recaptures += ctx.myDarts.filter((d) => d.recapture).length;
+      const f = ctx.st.legResults.reduce((m, r) => m + r.scores[ctx.p], 0);
+      w.fields += f;
+      w.finishedLegs += ctx.st.legResults.length;
+      push(w, ctx, ctx.st.legResults.length ? f / ctx.st.legResults.length : null);
+    },
+    fin(w) { w.hitRate = rate(w.hits, w.darts); w.fieldsPerLeg = rate(w.fields, w.finishedLegs); },
+  },
+
+  // Scorer-Summe je Leg aus dem Leg-Ende, Stopper-Darts nur aus fertigen Legs
+  scram: {
+    init: () => ({ ...base(), scoreSum: 0, finishedLegs: 0, bestScore: null, stopDarts: 0 }),
+    add(s, ctx) {
+      const fin = new Set(ctx.st.legResults.map(legKey));
+      let sum = 0;
+      for (const r of ctx.st.legResults) { sum += r.scores[ctx.p]; s.bestScore = Math.max(s.bestScore ?? -Infinity, r.scores[ctx.p]); }
+      s.scoreSum += sum;
+      s.finishedLegs += ctx.st.legResults.length;
+      s.stopDarts += ctx.myDarts.filter((d) => d.role === 'stopper' && fin.has(legKey(d))).length;
+      push(s, ctx, ctx.st.legResults.length ? sum / ctx.st.legResults.length : null);
+    },
+    fin(s) { s.avgScore = rate(s.scoreSum, s.finishedLegs); s.stopPerLeg = rate(s.stopDarts, s.finishedLegs); },
+  },
 };
 
 export function playerStats(playerId, games) {

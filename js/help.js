@@ -16,6 +16,10 @@ export const TERMS = {
   Marks: 'Treffer, die ein Feld schließen. Single bringt 1 Mark, Double 2, Triple 3.',
   MPR: 'Marks pro Runde: Schnitt deiner Marks je Runde.',
   Stechen: 'Entscheidung bei Gleichstand. Nur die Punktgleichen werfen weiter, bis einer vorn liegt.',
+  Inning: 'Beim Baseball eine Runde. Jedes Inning hat seine eigene Zielzahl.',
+  Runs: 'Punkte beim Baseball. Single 1, Double 2, Triple 3.',
+  Stopper: 'Beim Scram der Spieler, der Zahlen schließt. Er punktet nicht.',
+  Scorer: 'Beim Scram der Spieler, der auf offenen Zahlen Punkte sammelt.',
 };
 
 export const HELP = {
@@ -190,6 +194,60 @@ export const HELP = {
     win: 'Wer zuerst die 20 trifft, gewinnt. Bleibt nur einer mit Leben übrig, gewinnt er.',
     opts: { nlLives: '3: so spielen es die meisten Regeln. 9: wie der Name sagt.' },
     example: 'Du stehst auf 6 und triffst 6 und 7. Weiter geht es mit der 8.',
+  },
+  baseball: {
+    goal: 'Hol in neun Innings möglichst viele Runs.',
+    turn: 'Inning 1 zählt nur die 1, Inning 2 nur die 2 und so weiter bis zur 9. Jeder wirft drei Darts je Inning.',
+    score: 'Single bringt 1 Run, Double 2, Triple 3. Andere Zahlen zählen nicht. Höchstens 9 Runs je Inning, 81 im ganzen Spiel. Die Runs werden nicht mit der Inning-Nummer malgenommen.',
+    win: 'Nach dem neunten Inning gewinnt, wer die meisten Runs hat. Bei Gleichstand gibt es Extra-Innings, nur die Punktgleichen werfen weiter, bis nach einem Inning einer vorn liegt.',
+    opts: {
+      bbExtra: 'Extra-Innings auf Bull: 25 bringt 1 Run, Bull 2 (so spielen es die meisten Quellen). Weiter mit 10, 11 …: Die Extra-Innings gehen auf die nächsten Zahlen, nach der 20 aufs Bull.',
+      bbSeventh: 'Ohne Run halbiert („7th Inning Catch"): Wer im siebten Inning keinen Run holt, verliert die Hälfte seiner Runs, abgerundet.',
+    },
+    example: 'Inning 4: Du triffst 4, D4 und T4. Das sind 1 + 2 + 3 = 6 Runs.',
+  },
+  fives: {
+    goal: 'Sammle Fünfer-Punkte, bis du genau das Ziel erreichst.',
+    turn: 'Du wirfst drei Darts und addierst ihre Werte. Ist die Summe durch 5 teilbar, bekommst du Summe geteilt durch 5 Punkte.',
+    score: 'Eine Summe, die nicht durch 5 teilbar ist, zählt nicht. Geht ein Dart daneben, zählt die ganze Runde nicht. Die App zeigt dir während der Runde die Summe und wie viel bis zur nächsten Fünf fehlt.',
+    win: 'Wer zuerst das Ziel erreicht, gewinnt.',
+    opts: {
+      fvGoal: 'Wie viele Punkte du brauchst. 51 heißt das Spiel „Fifty-One by Fives", 50 und 100 sind in englischen Pubs üblich.',
+      fvOver: 'Genau treffen (Bust): Würdest du über das Ziel kommen, zählt die Runde nicht. Erreichen reicht: Überschreiten gewinnt auch.',
+      fvDt: 'Voller Wert: Double und Triple zählen doppelt und dreifach. Wie Single: Ein Double oder Triple zählt nur den Zahlenwert. Bull zählt immer 25 oder 50.',
+    },
+    example: 'T20, 20 und 5 sind 85. 85 geteilt durch 5 ergibt 17 Punkte. Mit 20, 20 und 3 hast du 43, das zählt nicht.',
+  },
+  steeples: {
+    goal: 'Lauf den Kurs von 1 bis 20 und zum Schluss Bull als Erster.',
+    turn: 'Drei Darts auf deine aktuelle Zahl. Jeder Treffer bringt dich weiter. Double überspringt die nächste Zahl, Triple die nächsten zwei. Über Bull springst du nicht hinweg.',
+    score: 'Triffst du eine andere Zahl des Kurses, also außer der Reihe, musst du nach der Runde zurück. Das gilt auch für Bull, solange es nicht dein Ziel ist. Daneben hat keine Folgen. Mehrere Fehltreffer in einer Runde kosten nur einmal.',
+    win: 'Wer zuerst Bull trifft, gewinnt.',
+    opts: {
+      stBack: 'Die Regel sagt nur „zurück auf die vorige Zahl". Ein Feld zurück: Du verlierst ein Ziel. Auf Rundenbeginn: Du stehst wieder dort, wo deine Runde begann, ihr Fortschritt verfällt. Ohne Strafe: Fehltreffer haben keine Folgen.',
+    },
+    example: 'Ziel 7: Du triffst D7 und stehst auf 9. Dann triffst du die 16. Nach der Runde geht es auf der 8 weiter.',
+  },
+  war: {
+    goal: 'Erobere mehr Felder als die anderen und halte sie.',
+    turn: 'Drei Darts. Treffer auf ein freies Feld bringen dir Marks darauf. Wer zuerst genug Marks hat, erobert das Feld. Deine Marks auf freien Feldern bleiben über die Runden stehen.',
+    score: 'Nach einer Eroberung hat jeder andere Spieler genau eine Runde, um das Feld zurückzuerobern. Dazu muss er in dieser Runde mehr Marks darauf werfen, als der Halter hat. Die Stärke steht im Feld. Danach ist das Feld gesichert. Gelingt die Rückeroberung, beginnt das Ganze von vorn.',
+    win: 'Sind alle Felder gesichert, gewinnt, wer die meisten hält. Bei Gleichstand werfen die Gleichen je eine Runde aufs Bull, 25 zählt 1 Mark, Bull 2. Mehr Marks gewinnt.',
+    opts: {
+      warSet: '15–20 + Bull: sieben Felder wie beim Cricket. 1–20 + Bull: alle 21 Felder, das dauert deutlich länger.',
+      warNeed: '3 Marks: Single 1, Double 2, Triple 3, 25 zählt 1, Bull 2. 1 Treffer: Jeder Treffer zählt eins, egal welcher Ring.',
+    },
+    example: 'Anna erobert die 20 mit T20, Stärke 3. In seiner nächsten Runde trifft Ben T20 und 20, das sind 4 Marks. Die 20 gehört jetzt Ben, und Anna hat eine Runde für den Gegenangriff.',
+  },
+  scram: {
+    goal: 'Hol als Scorer mehr Punkte als dein Gegner.',
+    turn: 'Einer ist Stopper, einer Scorer. Der Stopper wirft zuerst, dann wechseln sich beide mit je drei Darts ab. Jeder Treffer des Stoppers schließt die getroffene Zahl, egal welcher Ring.',
+    score: 'Der Scorer punktet nur auf offenen Zahlen, mit dem vollen Wert: T20 bringt 60, Bull 50. Sobald der Stopper die letzte Zahl schließt, ist die Hälfte vorbei, auch mitten in seiner Runde. Dann tauscht ihr die Rollen. Genau zwei Spieler.',
+    win: 'Nach beiden Hälften gewinnt die höhere Scorer-Summe. Bei Gleichstand wirft jeder einen Dart aufs Bull: Bull schlägt 25, 25 schlägt alles andere. Steht es wieder gleich, geht es so weiter.',
+    opts: {
+      scBull: '1–20 + Bull: Auch Bull ist eine Zahl, 25 und Bull schließen es beide. 1–20: ohne Bull.',
+    },
+    example: 'Als Stopper triffst du 20, T19 und 18: Alle drei sind zu. Dein Gegner wirft als Scorer jetzt auf die 17 und tiefer.',
   },
   atc: {
     goal: 'Triff die Zahlen 1 bis 20 der Reihe nach, auf Wunsch absteigend oder in zufälliger Reihenfolge.',

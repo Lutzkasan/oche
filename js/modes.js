@@ -18,6 +18,10 @@ import { ROUTE, hareTarget } from './rules/hare.js';
 import { golfHole, golfTarget } from './rules/golf.js';
 import { jdcVisit, jdcDartTarget, jdcGrade } from './rules/jdc.js';
 import { GALLERY_COUNT } from './rules/gallery.js';
+import { INNINGS, baseballTarget } from './rules/baseball.js';
+import { STEEPLE } from './rules/steeples.js';
+import { warFields, warOpen, warCount } from './rules/war.js';
+import { scramNums } from './rules/scram.js';
 import {
   S, MODES, esc, num, pct, tLabel, signed, sumBy, ALL_NUMS, player, pcolor, pname,
   MARK_SVG, turnSlots, legSetLine, playerGrid, legTurns, roundTrack, posTrack, pips, tiebreakNote, checkoutHint,
@@ -307,6 +311,95 @@ function boardJdc(st) {
       ${tiebreakNote(st, p)}`,
     };
   });
+}
+
+// Baseball: Runs je Inning, Leiste über die neun Innings
+function boardBaseball(st) {
+  const labels = Array.from({ length: INNINGS }, (_, i) => i + 1);
+  return playerGrid(st, (p) => {
+    const leg = st.leg, ml = matchLine(st, p);
+    const out = leg.contenders && !leg.contenders.includes(p);
+    const next = leg.rounds[p] < leg.stage ? tLabel(baseballTarget(leg.rounds[p] + 1, st.cfg)) : '✓';
+    return {
+      cls: out ? 'out' : '',
+      body: `<div class="p-rem">${leg.score[p]}<span class="p-unit">Runs</span></div>
+      ${roundTrack(st, p, labels)}
+      <div class="p-meta"><span>Ziel <b>${next}</b></span><span>Ø/Inning <b>${num(ml.ppi)}</b></span><span>Quote <b>${pct(ml.hitRate)}</b></span></div>
+      ${tiebreakNote(st, p)}`,
+    };
+  });
+}
+const baseballBar = (st) => {
+  if (!st.turn) return '';
+  const i = st.leg.rounds[st.current] + 1;
+  return `${st.leg.contenders ? 'Extra-Inning' : `Inning ${i}<small>von ${INNINGS}</small>`} · Ziel <b>${tLabel(baseballTarget(i, st.cfg))}</b>`;
+};
+
+// Fives: Stand, Rest bis zum Ziel und die laufende Summe mit Abstand zur nächsten Fünf
+const fivesSum = (t) => t.infos.reduce((a, x) => a + x.value, 0);
+function boardFives(st) {
+  return playerGrid(st, (p, pl, active) => {
+    const leg = st.leg, ml = matchLine(st, p);
+    let note = '';
+    if (active && st.turn.darts.length) {
+      const sum = fivesSum(st.turn);
+      note = st.turn.darts.some((d) => d.s === 0) ? 'Dart daneben: Diese Runde zählt nicht'
+        : sum % 5 ? `Summe ${sum} · ${5 - (sum % 5)} bis zur nächsten Fünf` : `Summe ${sum} · ${sum / 5} Punkte`;
+    }
+    return {
+      body: `<div class="p-rem">${leg.score[p]}</div>
+      <div class="p-meta"><span>Noch <b>${Math.max(0, st.cfg.goal - leg.score[p])}</b></span><span>Ø/Runde <b>${num(ml.ppr)}</b></span><span>Teilbar <b>${pct(ml.fiveRate)}</b></span></div>`,
+      after: note ? `<div class="p-note">${note}</div>` : '',
+    };
+  });
+}
+
+// Steeples: Kurs 1–20 und Bull wie Around the Clock, mit Hinweis auf den drohenden Rückschritt
+const steepleLabels = STEEPLE.map((t) => (t === 25 ? 'B' : t));
+function boardSteeples(st) {
+  return playerGrid(st, (p, pl, active) => {
+    const leg = st.leg, pos = leg.pos[p], ml = matchLine(st, p);
+    const back = st.cfg.back === 'start' ? `zurück auf ${tLabel(STEEPLE[leg.from[p]])}` : 'ein Feld zurück';
+    return {
+      body: `<div class="p-rem">${pos < STEEPLE.length ? `<span class="p-lbl">Ziel</span>${tLabel(STEEPLE[pos])}` : '✓'}</div>
+      ${posTrack(steepleLabels, pos)}
+      <div class="p-meta"><span>Quote <b>${pct(ml.hitRate)}</b></span><span>Geschafft <b>${pos}/${STEEPLE.length}</b></span><span>Zurück <b>${ml.backs}</b></span></div>`,
+      after: active && leg.slip[p] ? `<div class="p-note">Außer der Reihe getroffen: nach dieser Runde ${back}</div>` : '',
+    };
+  });
+}
+
+// War: Felder mit Halter, Stärke und Stand der Eroberung. Gesichert ist ein Feld, wenn niemand mehr zurückerobern darf.
+function boardWar(st) {
+  const leg = st.leg, cfg = st.cfg, fields = warFields(cfg);
+  const heads = S.game.playerIds.map((id, p) => {
+    const pl = player(id), active = st.current === p && !st.finished;
+    return `<span class="c-player ${active ? 'active' : ''}" style="--pc:${pl.color}"><b>${esc(pl.name)}</b><em>${warCount(leg, p)}</em><small>${legSetLine(st, p) || 'Felder'}</small></span>`;
+  }).join('');
+  const cells = fields.map((f) => {
+    const o = leg.owner[f];
+    const prog = o < 0 ? S.game.playerIds.map((_, q) => (leg.prog[q][f] ? `<i style="--pc:${pcolor(q)}">${leg.prog[q][f]}/${cfg.need}</i>` : '')).join('') : '';
+    const state = o < 0 ? '' : leg.locked[f] ? '<em>gesichert</em>' : `<em>Stärke ${leg.strength[f]}</em>`;
+    const open = st.turn && !leg.tb && warOpen(leg, f, st.current);
+    return `<div class="w-cell ${o >= 0 ? 'own' : ''} ${leg.locked[f] ? 'locked' : ''} ${open ? 'open' : ''}" ${o >= 0 ? `style="--pc:${pcolor(o)}"` : ''}><b>${f === 25 ? 'Bull' : f}</b>${state}${prog ? `<small>${prog}</small>` : ''}</div>`;
+  }).join('');
+  return `<div class="war">${leg.tb ? '<div class="sc-head">Stechen auf Bull: 25 = 1 Mark, Bull = 2</div>' : ''}<div class="tt-heads" style="--n:${st.n}">${heads}</div>
+    <div class="w-grid" style="--cols:${fields.length > 7 ? 7 : 4}">${cells}</div>
+    ${st.turn ? `<div class="c-turn" style="--pc:${pcolor(st.current)}"><span>${esc(pname(st.current))}</span>${turnSlots(st)}</div>` : ''}</div>`;
+}
+
+// Scram: Zahlenleiste (geschlossen durchgestrichen), Rollen im Kartenkopf
+function boardScram(st) {
+  const leg = st.leg, nums = scramNums(st.cfg);
+  const open = nums.filter((x) => !leg.closed[x]).length;
+  const head = leg.tb ? 'Stechen: je ein Dart aufs Bull' : `Hälfte ${leg.half} von 2 · ${open} ${open === 1 ? 'Zahl' : 'Zahlen'} offen`;
+  return `<div class="scram"><div class="sc-head">${head}</div>
+    <div class="sc-nums">${nums.map((x) => `<i class="${leg.closed[x] ? 'closed' : ''}">${x === 25 ? 'B' : x}</i>`).join('')}</div>
+    ${playerGrid(st, (p) => ({
+      head: leg.tb ? '' : `<span class="role ${p === leg.stopper ? 'h' : ''}">${p === leg.stopper ? 'Stopper' : 'Scorer'}</span>`,
+      body: `<div class="p-rem">${leg.score[p]}<span class="p-unit">Punkte</span></div>
+      <div class="p-meta"><span>Stopper-Darts <b>${matchLine(st, p).stopDarts}</b></span></div>`,
+    }))}</div>`;
 }
 
 // ---------- Leisten über dem Brett ----------
@@ -631,6 +724,108 @@ Object.assign(MODES, {
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? `→ ${st.leg.pos[p] + 1} · ${st.leg.lives[p]} ♥` : 'raus'),
     col: ['Quote', (ml) => pct(ml.hitRate)],
     stats: hitStats('Nine-Lives', (a, h) => h.tile('Leben verloren', a.lost, `${num(a.lostPerLeg, 1)} je Leg`)),
+  },
+
+  baseball: {
+    label: 'Baseball', group: 'party',
+    opts: [
+      ['bbExtra', 'Bei Gleichstand', [['bull', 'Extra-Innings auf Bull'], ['next', 'Weiter mit 10, 11 …']]],
+      ['bbSeventh', '7. Inning', [[0, 'Normal'], [1, 'Ohne Run halbiert']]],
+    ],
+    config: (s) => ({ extra: s.bbExtra, seventh: Boolean(s.bbSeventh) }),
+    board: boardBaseball,
+    targets: (st) => (st.turn ? one(st, baseballTarget(st.leg.rounds[st.current] + 1, st.cfg)) : []),
+    turnSum: (t) => sumBy(t, 'pts') + ' R',
+    homeScore: (st, p) => st.leg.score[p] + ' Runs',
+    col: ['Runs', (ml) => ml.score],
+    bar: baseballBar,
+    overlaySub: (st, ev) => `<p class="ov-sub">${st.legResults.at(-1).scores[ev.p]} Runs</p>`,
+    stats: (b, h) => `<div class="stats">
+      ${h.tile('Ø Runs je Spiel', num(b.avgScore, 1), `${b.finishedLegs} Legs`)}
+      ${h.tile('Beste Runs', b.bestScore ?? '–', 'höchstens 81')}
+      ${h.tile('Ø Runs je Inning', num(b.ppi, 2), `${b.turns} Innings`)}
+      ${h.tile('Trefferquote', pct(b.hitRate), `${b.hits} von ${b.darts} Darts auf die Zahl`)}
+      ${h.tile('Perfekte Innings', b.perfect, '9 Runs in einem Inning')}
+      ${h.matchTiles(b)}
+    </div>${h.trend(b.history, 'Ø Runs', 1)}${h.recent(b.history, 'Baseball', 'Runs', 0)}`,
+  },
+  fives: {
+    label: 'Fives', group: 'party',
+    opts: [
+      ['fvGoal', 'Ziel', [[51, '51'], [50, '50'], [100, '100']]],
+      ['fvOver', 'Über das Ziel', [['bust', 'Genau treffen (Bust)'], ['reach', 'Erreichen reicht']]],
+      ['fvDt', 'Double und Triple', [['full', 'Voller Wert'], ['single', 'Wie Single']]],
+    ],
+    config: (s) => ({ goal: s.fvGoal, over: s.fvOver, dt: s.fvDt }),
+    board: boardFives,
+    turnSum: (t) => String(fivesSum(t)),
+    homeScore: (st, p) => `${st.leg.score[p]}/${st.cfg.goal}`,
+    col: ['Ø/Runde', (ml) => num(ml.ppr)],
+    stats: (f, h) => `<div class="stats">
+      ${h.tile('Ø Punkte je Runde', num(f.ppr, 2), `${f.turns} Runden`)}
+      ${h.tile('Teilbare Runden', pct(f.fiveRate), `${f.fives} von ${f.turns}`)}
+      ${h.tile('Busts', f.busts)}
+      ${h.matchTiles(f)}
+    </div>${h.trend(f.history, 'Ø Punkte je Runde', 2)}${h.recent(f.history, 'Fives', 'Ø Punkte je Runde', 2)}`,
+  },
+  steeples: {
+    label: 'Steeples', group: 'party',
+    opts: [['stBack', 'Fehltreffer', [['one', 'Ein Feld zurück'], ['start', 'Auf Rundenbeginn'], ['none', 'Ohne Strafe']]]],
+    config: (s) => ({ back: s.stBack }),
+    board: boardSteeples,
+    targets: (st) => { const t = st.turn && STEEPLE[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
+    turnSum: (t) => { const a = sumBy(t, 'adv'); return t.infos.some((x) => x.slip) ? `+${a} ↶` : '+' + a; },
+    homeScore: (st, p) => { const t = STEEPLE[st.leg.pos[p]]; return t ? '→ ' + tLabel(t) : '✓'; },
+    col: ['Quote', (ml) => pct(ml.hitRate)],
+    overlaySub: (st, ev) => `<p class="ov-sub">Durch in ${st.legResults.at(-1).darts[ev.p]} Darts</p>`,
+    stats: hitStats('Steeples', (a, h) => h.tile('Zurückgesetzt', a.backs, `${num(a.backsPerLeg, 1)} je Leg`)),
+  },
+  war: {
+    label: 'War', group: 'party',
+    opts: [
+      ['warSet', 'Felder', [['cricket', '15–20 + Bull'], ['all', '1–20 + Bull']]],
+      ['warNeed', 'Erobern mit', [[3, '3 Marks'], [1, '1 Treffer']]],
+    ],
+    config: (s) => ({ set: s.warSet, need: s.warNeed }),
+    board: boardWar,
+    nums: (st) => warFields(st.cfg).filter((v) => v !== 25).sort((a, b) => a - b),
+    targets: (st) => {
+      if (!st.turn) return [];
+      if (st.leg.tb) return one(st, 25);
+      return warFields(st.cfg).filter((f) => warOpen(st.leg, f, st.current)).map((f) => [f, pcolor(st.current)]);
+    },
+    turnSum: (t) => { const c = t.infos.filter((x) => x.capture !== undefined).length; return c ? '+' + c : sumBy(t, 'marks') + ' M'; },
+    homeScore: (st, p) => warCount(st.leg, p) + ' Felder',
+    col: ['Felder', (ml) => ml.fields],
+    overlaySub: (st) => `<p class="ov-sub">Felder: ${S.game.playerIds.map((_, q) => `${esc(pname(q))} ${st.legResults.at(-1).scores[q]}`).join(' · ')}</p>`,
+    stats: (w, h) => `<div class="stats">
+      ${h.tile('Ø Felder je Leg', num(w.fieldsPerLeg, 1), `${w.finishedLegs} Legs`)}
+      ${h.tile('Eroberungen', w.captures)}
+      ${h.tile('Zurückerobert', w.recaptures)}
+      ${h.tile('Trefferquote', pct(w.hitRate), `${w.hits} von ${w.darts} Darts auf offene Felder`)}
+      ${h.matchTiles(w)}
+    </div>${h.trend(w.history, 'Ø Felder je Leg', 1)}${h.recent(w.history, 'War', 'Felder je Leg', 1)}`,
+  },
+  scram: {
+    label: 'Scram', group: 'party',
+    opts: [['scBull', 'Zahlen', [[1, '1–20 + Bull'], [0, '1–20']]]],
+    config: (s) => ({ bull: Boolean(s.scBull) }),
+    board: boardScram,
+    targets: (st) => {
+      if (!st.turn) return [];
+      if (st.leg.tb) return one(st, 25);
+      return scramNums(st.cfg).filter((x) => !st.leg.closed[x]).map((x) => [x, pcolor(st.current)]);
+    },
+    turnSum: (t) => (t.infos[0]?.role === 'stopper' ? '× ' + t.infos.filter((x) => x.closes).length : String(sumBy(t, 'pts'))),
+    homeScore: (st, p) => st.leg.score[p],
+    col: ['Punkte', (ml) => ml.score],
+    overlaySub: (st) => `<p class="ov-sub">Scorer-Punkte: ${S.game.playerIds.map((_, q) => `${esc(pname(q))} ${st.legResults.at(-1).scores[q]}`).join(' · ')}</p>`,
+    stats: (sc, h) => `<div class="stats">
+      ${h.tile('Ø Punkte als Scorer', num(sc.avgScore, 0), `${sc.finishedLegs} Legs`)}
+      ${h.tile('Bestwert', sc.bestScore ?? '–')}
+      ${h.tile('Ø Darts als Stopper', num(sc.stopPerLeg, 1), 'bis alle Zahlen zu sind')}
+      ${h.matchTiles(sc)}
+    </div>${h.trend(sc.history, 'Punkte als Scorer', 0)}${h.recent(sc.history, 'Scram', 'Punkte als Scorer', 0)}`,
   },
 
   // ---------- Training ----------

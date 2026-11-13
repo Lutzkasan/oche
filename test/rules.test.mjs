@@ -723,6 +723,194 @@ ok('Shooting Gallery: Punkte nach Darts, Fehlversuch 0, weiter mit der nächsten
   assert.equal(st.leg.score[0], 8);
 });
 
+// ---------- Baseball ----------
+const BB = (cfg) => ({ extra: 'bull', seventh: false, ...cfg });
+const innings = (fn) => Array.from({ length: 9 }, (_, i) => fn(i + 1)).join('  ');
+
+ok('Baseball: Inning n zählt nur die n, Single/Double/Triple = 1/2/3 Runs', () => {
+  const st = replay(game('baseball', BB(), 1, '1 D1 T1  3 D3 20'));
+  assert.equal(st.leg.score[0], 6); assert.deepEqual(st.turns.map((t) => t.points), [6, 0]);
+  const p = replay(game('baseball', BB(), 1, innings((i) => `T${i} T${i} T${i}`)));
+  assert.equal(p.finished, true); assert.equal(p.legResults[0].scores[0], 81);
+});
+
+ok('Baseball: Höchste Summe nach 9 Innings gewinnt, auch wenn sie nicht zuletzt geworfen hat', () => {
+  const st = replay(game('baseball', BB(), 2, innings((i) => `${i} - -  - - -`)));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.turns.length, 18);
+});
+
+ok('Baseball: Gleichstand → Extra-Innings auf Bull (25 = 1, Bull = 2) oder auf 10, 11 …', () => {
+  const tie = innings((i) => `${i} - -  ${i} - -`);
+  let st = replay(game('baseball', BB(), 2, tie));
+  assert.equal(st.lastEvent.type, 'tiebreak'); assert.deepEqual(st.leg.contenders, [0, 1]);
+  st = replay(game('baseball', BB(), 2, tie + '  25 - -  BULL - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1); assert.deepEqual(st.leg.score, [10, 11]);
+  st = replay(game('baseball', BB({ extra: 'next' }), 2, tie + '  25 - -  10 - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1);
+});
+
+ok('Baseball: 7. Inning ohne Run halbiert (abgerundet), nur mit Option', () => {
+  const six = Array.from({ length: 6 }, (_, i) => `${i + 1} - -`).join('  ') + '  T1 - -'; // 6 Runs + 3 auf die 1 bringt in Inning 7 nichts
+  let st = replay(game('baseball', BB({ seventh: true }), 1, six));
+  assert.equal(st.leg.score[0], 3); assert.equal(st.lastEvent.type, 'halved'); assert.equal(st.turns.at(-1).halved, 3);
+  st = replay(game('baseball', BB({ seventh: true }), 1, Array.from({ length: 6 }, (_, i) => `${i + 1} - -`).join('  ') + '  7 - -'));
+  assert.equal(st.leg.score[0], 7);
+  st = replay(game('baseball', BB(), 1, six));
+  assert.equal(st.leg.score[0], 6);
+});
+
+// ---------- Fives ----------
+const FV = (cfg) => ({ goal: 51, over: 'bust', dt: 'full', ...cfg });
+
+ok('Fives: Summe durch 5 teilbar bringt Summe/5, sonst nichts, Daneben macht die Runde ungültig', () => {
+  let st = replay(game('fives', FV(), 1, 'T20 20 5'));
+  assert.equal(st.leg.score[0], 17); assert.equal(st.turns[0].points, 17);
+  st = replay(game('fives', FV(), 1, '20 20 3'));
+  assert.equal(st.leg.score[0], 0); assert.equal(st.dartEvent.type, 'void');
+  st = replay(game('fives', FV(), 1, '20 - 5'));
+  assert.equal(st.leg.score[0], 0);
+  st = replay(game('fives', FV(), 1, 'BULL 25 5'));
+  assert.equal(st.leg.score[0], 16);
+});
+
+ok('Fives: Genau das Ziel gewinnt, Überwerfen ist Bust, Erreichen reicht als Option', () => {
+  // 3 × T20 = 180 → 36, dann 75 → 15: genau 51
+  let st = replay(game('fives', FV(), 2, 'T20 T20 T20  - - -  T20 5 10'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  st = replay(game('fives', FV(), 2, 'T20 T20 T20  - - -  T20 T20 T20'));
+  assert.equal(st.finished, false); assert.equal(st.leg.score[0], 36); assert.equal(st.turns.at(-1).bust, true);
+  st = replay(game('fives', FV({ over: 'reach' }), 2, 'T20 T20 T20  - - -  T20 T20 T20'));
+  assert.equal(st.finished, true); assert.equal(st.leg.score[0], 72);
+});
+
+ok('Fives: Double und Triple wie Single als Option, Bull bleibt 25/50', () => {
+  const st = replay(game('fives', FV({ dt: 'single' }), 1, 'T20 D10 BULL'));
+  assert.equal(st.leg.score[0], 16); // 20 + 10 + 50 = 80
+});
+
+// ---------- Steeples ----------
+ok('Steeples: Kurs 1–20 und Bull, Double überspringt eins, Triple zwei, nie über Bull', () => {
+  let st = replay(game('steeples', { back: 'one' }, 1, '1 D2 T4'));
+  assert.equal(st.leg.pos[0], 6); // 1 → 2, D2 → 4, T4 → 7 (Index 6)
+  st = replay(game('steeples', { back: 'one' }, 1, '1 2 3  4 5 6  7 8 9  10 11 12  13 14 15  16 17 T18'));
+  assert.equal(st.leg.pos[0], 20); // T18 springt bis vor Bull
+  st = replay(game('steeples', { back: 'one' }, 1, '1 2 3  4 5 6  7 8 9  10 11 12  13 14 15  16 17 18  19 20 BULL'));
+  assert.equal(st.finished, true); assert.equal(st.legResults[0].darts[0], 21);
+});
+
+ok('Steeples: Treffer außer der Reihe → nach der Runde zurück, Varianten', () => {
+  let st = replay(game('steeples', { back: 'one' }, 1, '1 2 20'));
+  assert.equal(st.leg.pos[0], 1); assert.equal(st.turns[0].back, 1); assert.equal(st.lastEvent.type, 'back');
+  st = replay(game('steeples', { back: 'start' }, 1, '1 2 3  4 20 5'));
+  assert.equal(st.leg.pos[0], 3); // zurück auf das Ziel zu Rundenbeginn (4)
+  st = replay(game('steeples', { back: 'none' }, 1, '1 20 2'));
+  assert.equal(st.leg.pos[0], 2); assert.equal(st.turns[0].back, undefined);
+  st = replay(game('steeples', { back: 'one' }, 1, '20 20 -'));
+  assert.equal(st.leg.pos[0], 0); // nie unter den Start
+  st = replay(game('steeples', { back: 'one' }, 1, '- - 1'));
+  assert.equal(st.leg.pos[0], 1); // daneben zählt nicht als Fehltreffer
+});
+
+// ---------- War ----------
+const WR = (cfg) => ({ set: 'cricket', need: 3, ...cfg });
+
+ok('War: Drei Marks erobern, Marks sammeln sich über Runden', () => {
+  let st = replay(game('war', WR(), 2, 'T20'));
+  assert.equal(st.leg.owner[20], 0); assert.equal(st.leg.strength[20], 3); assert.equal(st.dartEvent.type, 'capture');
+  st = replay(game('war', WR(), 2, '19 19 -  - - -  19'));
+  assert.equal(st.leg.owner[19], 0); assert.equal(st.leg.prog[0][19], 0);
+  st = replay(game('war', WR({ need: 1 }), 2, '15'));
+  assert.equal(st.leg.owner[15], 0);
+});
+
+ok('War: Eine Runde zum Zurückerobern, mehr Marks als der Halter, danach gesichert', () => {
+  let st = replay(game('war', WR(), 2, 'T20 - -  T20 - -'));
+  assert.equal(st.leg.owner[20], 0); assert.equal(st.leg.locked[20], true); // 3 Marks reichen nicht gegen Stärke 3
+  st = replay(game('war', WR(), 2, 'T20 - -  T20 20'));
+  assert.equal(st.leg.owner[20], 1); assert.equal(st.leg.strength[20], 4); assert.equal(st.dartEvent.type, 'recapture');
+  st = replay(game('war', WR(), 2, 'T20 - -  T20 20 -  T20 D20 -'));
+  assert.equal(st.leg.owner[20], 0); // Gegenangriff in der nächsten Runde: 5 schlägt 4
+  st = replay(game('war', WR(), 2, 'T20 20 -  - - -  T20 T20'));
+  assert.equal(st.leg.owner[20], 0); assert.equal(st.leg.strength[20], 4); // Stärke wächst nur in der Eroberungsrunde
+});
+
+ok('War: Alle Felder gesichert → meiste Felder gewinnt, Gleichstand → Stechen auf Bull', () => {
+  let st = replay(game('war', WR(), 2, 'T20 T19 T18  - - -  T17 T16 T15  - - -  BULL 25 -  - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.equal(st.legResults[0].scores[0], 7);
+  // 3 Spieler, 3 : 3 : 1. Das Bull ist erst nach den Runden von Spieler 1 und 2 gesichert.
+  const tie = 'T20 T19 T18  T17 T16 T15  BULL 25 -  - - -  - - -';
+  st = replay(game('war', WR(), 3, tie));
+  assert.equal(st.finished, false); assert.equal(st.lastEvent.type, 'tiebreak'); assert.deepEqual(st.leg.tb.pool, [0, 1]);
+  assert.equal(st.current, 0); // Spieler 3 ist im Stechen nicht dabei
+  st = replay(game('war', WR(), 3, tie + '  25 - -  25 - -'));
+  assert.equal(st.finished, false); assert.equal(st.lastEvent.type, 'tiebreak');
+  st = replay(game('war', WR(), 3, tie + '  25 - -  25 - -  BULL - -  25 - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  assert.equal(RULES.war.minPlayers, 2);
+});
+
+// ---------- Scram ----------
+const SC = (cfg) => ({ bull: false, ...cfg });
+const stopAll = (nums) => { const out = []; for (let i = 0; i < nums.length; i += 3) out.push(nums.slice(i, i + 3).join(' ')); return out; };
+
+ok('Scram: Stopper schließt mit jedem Treffer, Scorer punktet nur auf offenen Zahlen', () => {
+  const st = replay(game('scram', SC(), 2, '20 T19 -  T20 T19 T18'));
+  assert.equal(st.leg.closed[20], true); assert.equal(st.leg.closed[19], true);
+  assert.equal(st.leg.score[1], 54); assert.equal(st.leg.score[0], 0);
+  assert.equal(RULES.scram.minPlayers, 2); assert.equal(RULES.scram.maxPlayers, 2);
+});
+
+ok('Scram: Letzte Zahl beendet die Hälfte mitten in der Runde, Rollentausch, höhere Summe gewinnt', () => {
+  const nums = Array.from({ length: 20 }, (_, i) => String(20 - i)); // 20 … 1
+  const half = (scorerTurn) => stopAll(nums).flatMap((s, k) => (k < 6 ? [s, scorerTurn] : [s])); // nach der 7. Stopper-Runde ist alles zu
+  // Hälfte 1: Spieler 0 stoppt von 20 abwärts, Spieler 1 wirft als Scorer immer auf die 1, die bis zuletzt offen bleibt
+  let darts = half('1 1 1');
+  let st = replay(game('scram', SC(), 2, darts.join('  ')));
+  assert.equal(st.leg.half, 2); assert.equal(st.leg.stopper, 1); assert.equal(st.current, 1); assert.equal(st.lastEvent.type, 'swap');
+  assert.equal(st.leg.score[1], 18); assert.equal(st.turns.at(-1).darts.length, 2); // 20 Zahlen in 7 Runden: die letzte endet nach 2 Darts
+  darts = [...darts, ...half('2 2 2')];
+  st = replay(game('scram', SC(), 2, darts.join('  ')));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0); assert.deepEqual(st.legResults[0].scores, [36, 18]);
+});
+
+ok('Scram: Bull als Option, Gleichstand → je ein Dart aufs Bull', () => {
+  let st = replay(game('scram', SC({ bull: true }), 2, '25'));
+  assert.equal(st.leg.closed[25], true);
+  st = replay(game('scram', SC(), 2, 'BULL'));
+  assert.equal(st.leg.closed[25], undefined);
+  const nums = Array.from({ length: 20 }, (_, i) => String(20 - i));
+  const half = stopAll(nums).flatMap((s, k) => (k < 6 ? [s, '- - -'] : [s]));
+  const both = [...half, ...half].join('  ');
+  st = replay(game('scram', SC(), 2, both));
+  assert.equal(st.lastEvent.type, 'tiebreak'); assert.equal(st.finished, false);
+  st = replay(game('scram', SC(), 2, both + '  25  BULL'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 1);
+  st = replay(game('scram', SC(), 2, both + '  25  25'));
+  assert.equal(st.finished, false);
+});
+
+ok('Scram: Neues Leg tauscht die Rollen der ersten Hälfte', () => {
+  const nums = Array.from({ length: 20 }, (_, i) => String(20 - i));
+  const half = (sc) => stopAll(nums).flatMap((s, k) => (k < 6 ? [s, sc] : [s]));
+  const st = replay(game('scram', SC({ legs: 2 }), 2, [...half('1 1 1'), ...half('- - -')].join('  ')));
+  assert.equal(st.legResults.length, 1); assert.equal(st.leg.stopper, 1); assert.equal(st.current, 1);
+});
+
+ok('Statistik: Baseball, Fives, Steeples, War, Scram', () => {
+  const bb = playerStats('p0', [done(game('baseball', BB(), 1, innings((i) => `T${i} T${i} T${i}`)))]).baseball;
+  assert.equal(bb.bestScore, 81); assert.equal(bb.perfect, 9); assert.equal(bb.ppi, 9);
+  const fv = playerStats('p0', [done(game('fives', FV(), 2, 'T20 T20 T20  - - -  T20 5 10'))]).fives;
+  assert.equal(fv.turns, 2); assert.equal(fv.fives, 2); assert.equal(fv.ppr, 25.5);
+  const sp = playerStats('p0', [done(game('steeples', { back: 'one' }, 1, '1 2 20  2 3 4'))]).steeples;
+  assert.equal(sp.backs, 1); assert.equal(sp.hits, 5);
+  const wr = playerStats('p0', [done(game('war', WR(), 2, 'T20 T19 T18  - - -  T17 T16 T15  - - -  BULL 25 -  - - -'))]).war;
+  assert.equal(wr.captures, 7); assert.equal(wr.fieldsPerLeg, 7);
+  const nums = Array.from({ length: 20 }, (_, i) => String(20 - i));
+  const half = (sc) => stopAll(nums).flatMap((s, k) => (k < 6 ? [s, sc] : [s]));
+  const sc = playerStats('p0', [done(game('scram', SC(), 2, [...half('1 1 1'), ...half('2 2 2')].join('  ')))]).scram;
+  assert.equal(sc.avgScore, 36); assert.equal(sc.stopPerLeg, 20);
+});
+
 // ---------- Engine-Erweiterungen ----------
 ok('Spielerzahl je Modus', () => {
   assert.equal(RULES.hare.maxPlayers, 4); assert.equal(RULES.gotcha.minPlayers, 2);
@@ -731,9 +919,9 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 6);
+  assert.equal(SCHEMA, 7);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
-  await assert.rejects(importAll({ ...base, schema: 6, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+  await assert.rejects(importAll({ ...base, schema: 7, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
 });
 
 // Ein Lösch-Vermerk hat keinen Modus. Er darf nicht als „unbekannter Modus" gelten, sonst lehnte der Import jede

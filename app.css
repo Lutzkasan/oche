@@ -98,7 +98,6 @@ small { color: var(--muted); font-weight: 400; }
 .tile.big { grid-row: span 2; background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--red) 40%, transparent), transparent 60%), var(--panel-2); border-color: color-mix(in srgb, var(--red) 50%, var(--line)); }
 .tile.big b { font-size: 2.6rem; }
 .t-ico { width: 54px; height: 54px; border-radius: 50%; background: var(--red); color: #fff !important; display: grid; place-items: center; font-size: 1.3rem !important; margin-bottom: auto; }
-.tiles .tile:nth-child(4) { grid-column: 2 / span 2; }
 
 /* ---------- Spiel ---------- */
 .game { height: 100dvh; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 12px; padding: 12px; }
@@ -311,7 +310,6 @@ small { color: var(--muted); font-weight: 400; }
   .pgrid.n2 { grid-template-rows: none; grid-template-columns: 1fr 1fr; }
   .tiles { grid-template-columns: 1fr 1fr; }
   .tile.big { grid-column: 1 / -1; grid-row: auto; }
-  .tiles .tile:nth-child(4) { grid-column: auto; }
   .add-player { grid-template-columns: 1fr; }
   .row { grid-template-columns: 1fr auto; }
   .row .r-sub { grid-column: 1 / -1; grid-row: 2; }
@@ -413,7 +411,6 @@ button.dbl { font: inherit; color: inherit; text-align: left; width: 100%; }
   .home .foot { grid-column: 1 / -1; }
   .home .tiles { grid-template-columns: 1fr 1fr; }
   .home .tile.big { grid-column: 1 / -1; grid-row: auto; min-height: 170px; }
-  .home .tiles .tile:nth-child(4) { grid-column: auto; }
   .home-side section:first-child .sec { margin-top: 0; }
 
   .page { max-width: 1440px; }
@@ -425,3 +422,26 @@ button.dbl { font: inherit; color: inherit; text-align: left; width: 100%; }
   .page.players .add-player { grid-template-columns: 1fr auto auto; }
   .filters { align-items: center; }
 }
+
+/* ---------- 0.7.0: War, Scram ---------- */
+.war { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.war .tt-heads { grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+.w-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px; }
+.w-cell { display: grid; place-items: center; align-content: center; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; min-height: 0; overflow: hidden; padding: 4px; }
+.w-cell b { font: 800 clamp(1.4rem, 3.4vw, 2.6rem) var(--display); line-height: 1; }
+.w-cell.own { background: color-mix(in srgb, var(--pc) 26%, var(--panel)); border-color: var(--pc); }
+.w-cell.locked { background: color-mix(in srgb, var(--pc) 55%, var(--panel)); }
+.w-cell.open { box-shadow: inset 0 0 0 2px var(--gold); }
+.w-cell em { font: 600 .75rem var(--body); font-style: normal; }
+.w-cell small { display: flex; gap: 6px; font: 600 .75rem var(--body); }
+.w-cell small i { font-style: normal; color: var(--pc); }
+.sc-head { font: 800 1.2rem var(--display); text-transform: uppercase; letter-spacing: .04em; color: var(--gold); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 14px; }
+.scram { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 10px; height: 100%; }
+.sc-nums { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 3px; }
+.sc-nums i { font: 800 .95rem var(--display); font-style: normal; text-align: center; padding: .3em 0; border-radius: 6px; background: var(--panel-2); }
+.sc-nums i.closed { background: transparent; color: var(--muted); text-decoration: line-through; box-shadow: inset 0 0 0 1px var(--line); }
+
+/* ---------- 0.7.0: Ergebnisse, Daten ---------- */
+.row .r-sub i b { font: 800 1.1rem var(--display); margin-left: .2rem; }
+.danger-zone { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
+.danger-zone h3 { color: var(--red); }

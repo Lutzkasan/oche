@@ -1,6 +1,6 @@
 import * as db from './db.js';
 import { replay, RULES, matchLine, canStop, prepareConfig } from './engine.js';
-import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime } from './stats.js';
+import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime, replayCached } from './stats.js';
 import { lineChart, bindCharts, boardHeatmap, fieldLabel } from './charts.js';
 import { HELP, TERMS } from './help.js';
 import { GROUPS, setupDefaults } from './modes.js';
@@ -9,27 +9,30 @@ import {
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.6.1';
+export const APP_VERSION = '0.7.0';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
+// Alles, was die App außerhalb von IndexedDB ablegt. Zurücksetzen löscht genau diese Schlüssel.
+const LOCAL_KEYS = ['oche.setup', 'oche.statsFilter'];
+const RESET_WORD = 'LÖSCHEN';
 
 const $app = document.getElementById('app');
 
 // ---------- Hilfen ----------
 function loadSetup() {
   const def = { mode: 'x01', legs: 1, sets: 1, players: [], ...setupDefaults() };
-  try { return { ...def, ...JSON.parse(localStorage.getItem('oche.setup') || '{}') }; } catch { return def; }
+  try { return { ...def, ...JSON.parse(localStorage.getItem(LOCAL_KEYS[0]) || '{}') }; } catch { return def; }
 }
-function saveSetup() { try { localStorage.setItem('oche.setup', JSON.stringify(S.setup)); } catch { /* nur Komfort */ } }
+function saveSetup() { try { localStorage.setItem(LOCAL_KEYS[0], JSON.stringify(S.setup)); } catch { /* nur Komfort */ } }
 // Die eine Stelle, die entscheidet, welche Profile in Auswahllisten erscheinen (Start, Setup, Spieler, Statistik).
-// Archivierte Profile fehlen dort. Ihre Spiele und Kennzahlen bleiben, auch für die Mitspieler.
+// Archivierte Profile fehlen dort und stehen nur unter „Daten" im Archiv. Ihre Spiele und Kennzahlen bleiben, auch für die Mitspieler.
 const byName = (a, b) => a.name.localeCompare(b.name, 'de');
 const visiblePlayers = () => S.players.filter((p) => !p.archived).sort(byName);
 const archivedPlayers = () => S.players.filter((p) => p.archived).sort(byName);
 
 // ---------- Ansichten ----------
 const VIEWS = {
-  home: viewHome, players: viewPlayers, archive: viewArchive, setup: viewSetup, game: viewGame, stats: viewStats, data: viewData,
+  home: viewHome, players: viewPlayers, setup: viewSetup, game: viewGame, stats: viewStats, data: viewData, results: viewResults,
 };
 
 function render() {
@@ -47,13 +50,8 @@ const swatches = (sel, action) => `<div class="swatches">${COLORS.map((c) => `<b
 // Neue Profile bekommen die erste Farbe, die kein sichtbares Profil trägt
 const nextColor = () => { const used = new Set(visiblePlayers().map((p) => p.color)); return COLORS.find((c) => !used.has(c)) || COLORS[S.players.length % COLORS.length]; };
 
-function logo() {
-  return `<svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
-    <circle cx="24" cy="24" r="22" fill="var(--board-dark)"/>
-    <circle cx="24" cy="24" r="17" fill="none" stroke="var(--red)" stroke-width="3"/>
-    <circle cx="24" cy="24" r="10.5" fill="none" stroke="var(--green)" stroke-width="3"/>
-    <circle cx="24" cy="24" r="4" fill="var(--red)"/><circle cx="24" cy="24" r="1.6" fill="var(--cream)"/></svg>`;
-}
+// Logo „Turnierscheibe". Die Geometrie steht nur in tools/make-icons.py, das icons/logo.svg und die App-Icons erzeugt.
+const logo = () => '<img src="icons/logo.svg" class="logo" alt="">';
 
 function backupBanner() {
   const finished = S.games.filter((g) => g.status === 'finished');
@@ -71,9 +69,10 @@ function gameTitle(g) {
   return `${esc(r.title(g.config))} <small>${esc(r.subtitle(g.config))}</small>`;
 }
 
+// Startseite: nur laufende Spiele. Beendete Spiele stehen unter „Ergebnisse".
 function viewHome() {
   const running = S.games.filter((g) => g.status === 'active').sort((a, b) => b.updatedAt - a.updatedAt);
-  const recent = S.games.filter((g) => g.status === 'finished').sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 6);
+  const finished = S.games.filter((g) => g.status === 'finished').length;
   const more = Object.values(MODES).filter((u) => u.group !== 'classic').length;
   return `<main class="home"><div class="home-main">
     <header class="brand">${logo()}<div><h1>Oche</h1><span>Dart Counter</span></div></header>
@@ -82,29 +81,45 @@ function viewHome() {
       <button class="tile big" data-a="nav" data-v="setup"><span class="t-ico">▶</span><b>Neues Spiel</b><span>X01 · Cricket · ${more} Party- und Trainingsspiele</span></button>
       <button class="tile" data-a="nav" data-v="players"><b>Spieler</b><span>${visiblePlayers().length} ${visiblePlayers().length === 1 ? 'Profil' : 'Profile'}</span></button>
       <button class="tile" data-a="nav" data-v="stats"><b>Statistik</b><span>Averages, Doppel, Trefferquoten</span></button>
-      <button class="tile" data-a="nav" data-v="data"><b>Daten</b><span>Sichern · Tablet wechseln</span></button>
+      <button class="tile" data-a="nav" data-v="data"><b>Daten</b><span>Sichern · Archiv · Zurücksetzen</span></button>
+      <button class="tile" data-a="nav" data-v="results"><b>Ergebnisse</b><span>${finished === 1 ? '1 beendetes Spiel' : `${finished} beendete Spiele`}</span></button>
     </nav></div><div class="home-side">
-    ${running.length ? `<section><h3 class="sec">Laufende Spiele</h3><div class="list">${running.map((g) => {
+    <section><h3 class="sec">Laufende Spiele</h3>${running.length ? `<div class="list">${running.map((g) => {
       const st = replay(g), ui = MODES[g.mode];
       return `<button class="row" data-a="resume" data-v="${g.id}">
         <span class="r-main">${gameTitle(g)}</span>
         <span class="r-sub">${g.playerIds.map((id, i) => `<i style="--pc:${player(id).color}">${esc(player(id).name)} ${ui.homeScore(st, i)}</i>`).join(' · ')}</span>
         <span class="r-go">Fortsetzen ›</span></button>`;
-    }).join('')}</div></section>` : ''}
-    ${recent.length ? `<section><h3 class="sec">Zuletzt gespielt</h3><div class="list">${recent.map((g) => `
-      <div class="row static"><span class="r-main">${gameTitle(g)}</span>
-      <span class="r-sub">${g.playerIds.map((id) => `<i style="--pc:${player(id).color}" class="${id === g.winnerId ? 'win' : ''}">${esc(player(id).name)}</i>`).join(' · ')}</span>
-      <span class="r-date">${day(g.finishedAt)}</span></div>`).join('')}</div></section>` : ''}
+    }).join('')}</div>` : '<p class="muted">Kein Spiel offen. Beendete Spiele stehen unter „Ergebnisse".</p>'}</section>
     </div><footer class="foot">Version ${APP_VERSION} · Build ${BUILD}</footer>
   </main>`;
 }
 
+// Ergebnisse: alle beendeten Spiele, neueste zuerst. Je Spieler gewonnene Legs (bzw. Sets), der Sieger hervorgehoben.
+function resultLine(g) {
+  const st = replayCached(g);
+  const multi = st.cfg.sets > 1 || st.cfg.legs > 1;
+  const won = (p) => (st.cfg.sets > 1 ? st.sets[p] : st.legResults.filter((r) => r.winner === p).length);
+  return g.playerIds.map((id, p) => `<i style="--pc:${player(id).color}" class="${id === g.winnerId ? 'win' : ''}">${esc(player(id).name)}${multi ? ` <b>${won(p)}</b>` : id === g.winnerId && g.playerIds.length > 1 ? ' ✓' : ''}</i>`).join(' · ');
+}
+function viewResults() {
+  const list = S.games.filter((g) => g.status === 'finished').sort((a, b) => b.finishedAt - a.finishedAt);
+  const shown = S.allResults ? list : list.slice(0, 30);
+  return `${topbar('Ergebnisse')}<main class="page">
+    ${list.length ? `<div class="list games-list">${shown.map((g) => `<div class="row static ${g.excluded ? 'excluded' : ''}">
+      <span class="r-main">${gameTitle(g)}</span>
+      <span class="r-sub">${resultLine(g)}${g.excluded ? ' <em>· nicht gewertet</em>' : ''}</span>
+      <span class="r-date">${day(g.finishedAt)}</span></div>`).join('')}</div>
+    ${list.length > shown.length || S.allResults ? `<button class="btn sm ghost more" data-a="allResults">${S.allResults ? 'Weniger zeigen' : `Alle ${list.length} zeigen`}</button>` : ''}`
+    : '<p class="muted">Noch keine beendeten Spiele.</p>'}
+  </main>`;
+}
+
 function viewPlayers() {
-  const list = visiblePlayers(), arch = archivedPlayers();
+  const list = visiblePlayers();
   const count = (id) => S.games.filter((g) => g.playerIds.includes(id)).length;
   const games = (n) => (n === 1 ? '1 Spiel' : `${n} Spiele`);
-  const archBtn = arch.length ? `<button class="btn sm" data-a="nav" data-v="archive">Archiv · ${arch.length}</button>` : '';
-  return `${topbar('Spieler', archBtn)}<main class="page players">
+  return `${topbar('Spieler')}<main class="page players">
     <form class="card add-player" data-form="addPlayer">
       <input name="name" placeholder="Name" maxlength="24" autocomplete="off" required>
       ${swatches(S.newColor, 'pickColor')}
@@ -118,21 +133,6 @@ function viewPlayers() {
       <span class="r-actions"><button class="btn sm" data-a="editPlayer" data-v="${p.id}">Bearbeiten</button>
       <button class="btn sm ghost" data-a="removePlayer" data-v="${p.id}">${n ? 'Archivieren' : 'Löschen'}</button></span></div>`;
     }).join('') || '<p class="muted">Noch keine Spieler. Leg oben das erste Profil an.</p>'}</div>
-  </main>`;
-}
-
-// Archiv: eigene Seite, erreichbar über den Knopf „Archiv" bei den Spielern
-function viewArchive() {
-  const arch = archivedPlayers();
-  const count = (id) => S.games.filter((g) => g.playerIds.includes(id)).length;
-  return `${topbar('Archiv', '', 'players')}<main class="page players">
-    <p class="muted">Archivierte Profile fehlen in Spielerauswahl und Statistik. Ihre Spiele zählen weiter, auch für die Mitspieler.
-      „Vergessen" löscht das Profil endgültig.</p>
-    <div class="list cols">${arch.map((p) => `<div class="row static archived">
-      <span class="dot" style="--pc:${p.color}"></span><span class="r-main">${esc(p.name)}</span>
-      <span class="r-sub">${count(p.id) === 1 ? '1 Spiel' : count(p.id) + ' Spiele'}</span>
-      <span class="r-actions"><button class="btn sm" data-a="restorePlayer" data-v="${p.id}">Zurückholen</button>
-      <button class="btn sm danger" data-a="forgetPlayer" data-v="${p.id}">Vergessen</button></span></div>`).join('') || '<p class="muted">Das Archiv ist leer.</p>'}</div>
   </main>`;
 }
 
@@ -255,9 +255,9 @@ const isoDay = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${St
 
 function loadStatsFilter() {
   const def = { days: null, mode: 'all', custom: false, from: isoDay(Date.now() - 30 * 864e5), to: isoDay(Date.now()) };
-  try { return { ...def, ...JSON.parse(localStorage.getItem('oche.statsFilter') || '{}') }; } catch { return def; }
+  try { return { ...def, ...JSON.parse(localStorage.getItem(LOCAL_KEYS[1]) || '{}') }; } catch { return def; }
 }
-function saveStatsFilter() { try { localStorage.setItem('oche.statsFilter', JSON.stringify(S.statsFilter)); } catch { /* nur Komfort */ } }
+function saveStatsFilter() { try { localStorage.setItem(LOCAL_KEYS[1], JSON.stringify(S.statsFilter)); } catch { /* nur Komfort */ } }
 
 // Auswahlliste nach Gruppen. Ein Modus erscheint, sobald der Spieler darin einen Dart geworfen hat (hasPlay,
 // dieselbe Prüfung wie in den Kennzahlen). Der gewählte Eintrag bleibt sichtbar, auch wenn er leer ist.
@@ -356,6 +356,22 @@ function viewStats() {
 }
 
 // ---------- Daten ----------
+// Verwaltungsseite: Sichern, Wiederherstellen, Archiv der Profile, Speicher, Zurücksetzen
+function archiveCard() {
+  const arch = archivedPlayers();
+  if (!arch.length) return '';
+  const count = (id) => S.games.filter((g) => g.playerIds.includes(id)).length;
+  return `<section class="card">
+      <h3>Archiv</h3>
+      <p class="muted">Archivierte Profile fehlen in Spielerauswahl und Statistik. Ihre Spiele zählen weiter, auch für die Mitspieler. „Vergessen" löscht das Profil endgültig.</p>
+      <div class="list">${arch.map((p) => `<div class="row static archived">
+        <span class="dot" style="--pc:${p.color}"></span><span class="r-main">${esc(p.name)}</span>
+        <span class="r-sub">${count(p.id) === 1 ? '1 Spiel' : count(p.id) + ' Spiele'}</span>
+        <span class="r-actions"><button class="btn sm" data-a="restorePlayer" data-v="${p.id}">Zurückholen</button>
+        <button class="btn sm danger" data-a="forgetPlayer" data-v="${p.id}">Vergessen</button></span></div>`).join('')}</div>
+    </section>`;
+}
+
 function viewData() {
   const finished = S.games.filter((g) => g.status === 'finished').length;
   const persistText = S.persisted === true ? 'Dauerhaft. Android räumt die Daten nicht bei Speichermangel.'
@@ -374,7 +390,13 @@ function viewData() {
       <p>Auf dem neuen Tablet die App installieren, hier die Sicherungsdatei wählen (.txt aus „Teilen" oder .json aus „Als Datei speichern"). Vorhandene Daten bleiben erhalten. Gleiche Spiele werden nicht doppelt angelegt.</p>
       <label class="btn file">Sicherung importieren<input type="file" accept="application/json,.json,text/plain,.txt" data-change="import" hidden></label>
     </section>
+    ${archiveCard()}
     <section class="card"><h3>Speicher</h3><p class="muted">${persistText}</p></section>
+    <section class="card danger-zone">
+      <h3>Zurücksetzen</h3>
+      <p>Löscht alle Spieler, Spiele und Einstellungen auf diesem Tablet. Danach startet Oche wie neu installiert. Eine Sicherung, die du danach importierst, holt alles zurück.</p>
+      <div class="btn-row"><button class="btn danger" data-a="reset">Alles zurücksetzen</button></div>
+    </section>
     <footer class="foot">Oche ${APP_VERSION} · Build ${BUILD}</footer>
   </main>`;
 }
@@ -417,6 +439,9 @@ function announce() {
       blindhit: ['TREFFER', 'bust msg'],
       life: ['−1 LEBEN', 'bust msg'],
       match: ['GETROFFEN', 'ton msg'],
+      capture: ['EROBERT', 'max msg'],
+      recapture: ['ZURÜCKEROBERT', 'max msg'],
+      void: ['ZÄHLT NICHT', 'bust msg'],
     }[de.type];
     if (msg && !(de.type === 'match' && ev)) return flash(...msg);
   }
@@ -425,6 +450,9 @@ function announce() {
   if (ev.type === 'strike') return flash('STRICH', 'bust msg');
   if (ev.type === 'life') return flash('−1 LEBEN', 'bust msg');
   if (ev.type === 'out') return flash(`${name(ev.turn.p)} raus`, 'bust msg');
+  if (ev.type === 'halved') return flash('HALBIERT', 'bust msg');
+  if (ev.type === 'back') return flash('ZURÜCK', 'bust msg');
+  if (ev.type === 'swap') return flash('ROLLENTAUSCH', 'ton msg');
   if (ev.type === 'turn' && S.st.rule.id === 'x01') {
     if (ev.turn.points === 180) flash('180', 'max');
     else if (ev.turn.points >= 100) flash(String(ev.turn.points), 'ton');
@@ -550,7 +578,7 @@ const A = {
     const used = S.games.some((g) => g.playerIds.includes(id));
     const r = await dialog({
       title: used ? `${p.name} archivieren?` : `${p.name} löschen?`,
-      text: used ? 'Das Profil verschwindet aus Spielerauswahl und Statistik. Alle Spiele bleiben erhalten, auch in der Statistik der Mitspieler. Über den Knopf „Archiv" holst du es jederzeit zurück.' : 'Das Profil hat keine Spiele und wird gelöscht.',
+      text: used ? 'Das Profil verschwindet aus Spielerauswahl und Statistik. Alle Spiele bleiben erhalten, auch in der Statistik der Mitspieler. Unter „Daten" im Archiv holst du es jederzeit zurück.' : 'Das Profil hat keine Spiele und wird gelöscht.',
       buttons: [{ label: 'Abbrechen', value: 'x' }, { label: used ? 'Archivieren' : 'Löschen', value: 'ok', danger: true }],
     });
     if (r.btn !== 'ok') return;
@@ -562,7 +590,6 @@ const A = {
   },
   restorePlayer: (id) => {
     setFlag('players', player(id), 'archived', false);
-    if (!archivedPlayers().length) S.view = 'players';
     render();
   },
   // Endgültig: Lösch-Vermerk statt Profil. Die Spiele bleiben, damit die Statistik der Mitspieler stimmt.
@@ -577,7 +604,6 @@ const A = {
     if (r.btn !== 'ok') return;
     S.players = S.players.filter((x) => x.id !== id);
     db.remove('players', id).catch((e) => toast('Löschen fehlgeschlagen: ' + e.message));
-    if (!archivedPlayers().length) S.view = 'players';
     render();
   },
   // Spiel aus der Wertung nehmen oder zurückholen. Gilt für alle Spieler des Spiels.
@@ -589,6 +615,7 @@ const A = {
     render();
   },
   allGames: () => { S.allGames = !S.allGames; render(); },
+  allResults: () => { S.allResults = !S.allResults; render(); },
   start: () => {
     const s = S.setup;
     startGame(s.mode, { ...MODES[s.mode].config(s), legs: s.legs, sets: s.sets }, [...s.players]);
@@ -649,6 +676,38 @@ const A = {
   heatPick: (v) => { S.heatSel = v; render(); },
   exportShare: () => doExport(true),
   exportFile: () => doExport(false),
+  // Zurücksetzen in drei Schritten: Sicherung anbieten, Wort eintippen, dann alles leeren.
+  // Löscht IndexedDB (Spieler, Spiele, Lösch-Vermerke, Meta) und die Einstellungen in localStorage.
+  reset: async () => {
+    const r = await dialog({
+      title: 'Alles zurücksetzen?',
+      text: `${S.players.length} Spieler und ${S.games.length} Spiele werden gelöscht, dazu alle Einstellungen. Sichere vorher, wenn du die Daten behalten willst.`,
+      buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Teilen', value: 'share' }, { label: 'Als Datei', value: 'file' }, { label: 'Ohne Sicherung weiter', value: 'go', danger: true }],
+    });
+    if (!['share', 'file', 'go'].includes(r.btn)) return;
+    if (r.btn !== 'go') await doExport(r.btn === 'share');
+    const c = await dialog({
+      title: 'Wirklich alles löschen?',
+      text: `Das lässt sich nicht rückgängig machen. Tippe ${RESET_WORD} ein, um zu bestätigen.`,
+      input: '',
+      buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Endgültig zurücksetzen', value: 'ok', danger: true }],
+    });
+    if (c.btn !== 'ok') return;
+    if ((c.value || '').toUpperCase() !== RESET_WORD) { toast('Nicht zurückgesetzt: Das Wort stimmte nicht.'); return; }
+    try {
+      await db.resetAll();
+      for (const k of LOCAL_KEYS) { try { localStorage.removeItem(k); } catch { /* nur Komfort */ } }
+      Object.assign(S, { game: null, st: null, statsFor: null, heatSel: null, allGames: false, allResults: false });
+      S.setup = loadSetup();
+      S.statsFilter = loadStatsFilter();
+      await loadAll();
+      S.view = 'home';
+      render();
+      toast('Oche ist zurückgesetzt.');
+    } catch (e) {
+      dialog({ title: 'Zurücksetzen fehlgeschlagen', text: esc(e.message) });
+    }
+  },
 };
 
 document.addEventListener('click', (e) => {

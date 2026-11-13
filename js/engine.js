@@ -40,10 +40,16 @@ import { blindkiller } from './rules/blindkiller.js';
 import { gotcha } from './rules/gotcha.js';
 import { jdc } from './rules/jdc.js';
 import { gallery } from './rules/gallery.js';
+import { baseball } from './rules/baseball.js';
+import { fives } from './rules/fives.js';
+import { steeples } from './rules/steeples.js';
+import { war } from './rules/war.js';
+import { scram } from './rules/scram.js';
 
 export const RULES = {
   x01, cricket, atc, shanghai, killer, bobs, halveit, c121,
   ttt, hare, follow, chase, golf, knockout, ninelives, blindkiller, mickey, bermuda, gotcha, shove, dbl, jdc, gallery,
+  baseball, fives, steeples, war, scram,
 };
 
 const zeros = (n) => Array(n).fill(0);
