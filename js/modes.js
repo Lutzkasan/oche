@@ -17,7 +17,7 @@ import { NEED, cricketRows } from './rules/cricket.js';
 import { ROUTE, hareTarget } from './rules/hare.js';
 import { golfHole, golfTarget } from './rules/golf.js';
 import { jdcVisit, jdcDartTarget, jdcGrade } from './rules/jdc.js';
-import { GALLERY_COUNT } from './rules/gallery.js';
+import { GALLERY_COUNT, galleryOut } from './rules/gallery.js';
 import { INNINGS, baseballTarget } from './rules/baseball.js';
 import { STEEPLE } from './rules/steeples.js';
 import { warFields, warOpen, warCount } from './rules/war.js';
@@ -174,7 +174,18 @@ function boardC121(st) {
   });
 }
 
+// „0 oder drunter": Ab welchem Wurf checkt ein einzelner Dart den Rest? Leer, solange kein Dart reicht.
+function underHint(rem, out) {
+  const note = (t) => `<div class="p-note">${t}</div>`;
+  if (out === 'single') return rem <= 60 ? note(`Jeder Dart ab ${rem} Punkten checkt`) : '';
+  const parts = [];
+  if (rem <= 40) parts.push(`Doppel ab D${Math.ceil(rem / 2)}`); else if (rem <= 50) parts.push('Bull');
+  if (out === 'master' && rem <= 60) parts.push(`Triple ab T${Math.ceil(rem / 3)}`);
+  return parts.length ? note(parts.join(' oder ') + ' checkt') : '';
+}
+
 function boardGallery(st) {
+  const { out, over } = galleryOut(st.cfg);
   return playerGrid(st, (p, pl, active) => {
     const leg = st.leg, ml = matchLine(st, p);
     const done = leg.rounds[p] >= leg.stage;
@@ -183,7 +194,7 @@ function boardGallery(st) {
       body: `<div class="p-rem">${done ? '✓' : `<span class="p-lbl">Ziel ${leg.target[p]}</span>${leg.rem[p]}`}</div>
       <div class="p-meta"><span>Punkte <b>${leg.score[p]}</b></span><span>Versuch <b>${Math.min(leg.rounds[p] + 1, leg.stage)}/${leg.stage}</b></span><span>Darts <b>${leg.attemptDarts[p]}/9</b></span><span>Checks <b>${ml.checks}</b></span></div>
       ${tiebreakNote(st, p)}`,
-      after: active ? checkoutHint(suggestCheckout(leg.rem[p], 3 - st.turn.darts.length, 'double')) : '',
+      after: !active ? '' : over === 'under' ? underHint(leg.rem[p], out) : checkoutHint(suggestCheckout(leg.rem[p], 3 - st.turn.darts.length, out)),
     };
   });
 }
@@ -360,11 +371,14 @@ function boardSteeples(st) {
   return playerGrid(st, (p, pl, active) => {
     const leg = st.leg, pos = leg.pos[p], ml = matchLine(st, p);
     const back = st.cfg.back === 'start' ? `zurück auf ${tLabel(STEEPLE[leg.from[p]])}` : 'ein Feld zurück';
+    // 'miss': Hinweis, solange in der laufenden Runde noch kein Treffer steht und es ein Feld zu verlieren gibt
+    const open = active && st.cfg.back === 'miss' && st.turn.darts.length > 0 && !leg.hit[p] && pos > 0;
     return {
       body: `<div class="p-rem">${pos < STEEPLE.length ? `<span class="p-lbl">Ziel</span>${tLabel(STEEPLE[pos])}` : '✓'}</div>
       ${posTrack(steepleLabels, pos)}
       <div class="p-meta"><span>Quote <b>${pct(ml.hitRate)}</b></span><span>Geschafft <b>${pos}/${STEEPLE.length}</b></span><span>Zurück <b>${ml.backs}</b></span></div>`,
-      after: active && leg.slip[p] ? `<div class="p-note">Außer der Reihe getroffen: nach dieser Runde ${back}</div>` : '',
+      after: active && leg.slip[p] ? `<div class="p-note">Außer der Reihe getroffen: nach dieser Runde ${back}</div>`
+        : open ? '<div class="p-note">Noch kein Treffer: ohne Treffer geht es ein Feld zurück</div>' : '',
     };
   });
 }
@@ -770,11 +784,11 @@ Object.assign(MODES, {
   },
   steeples: {
     label: 'Steeples', group: 'party',
-    opts: [['stBack', 'Fehltreffer', [['one', 'Ein Feld zurück'], ['start', 'Auf Rundenbeginn'], ['none', 'Ohne Strafe']]]],
+    opts: [['stBack', 'Zurück bei', [['miss', 'Runde ohne Treffer'], ['one', 'Fehltreffer: 1 Feld'], ['start', 'Fehltreffer: Rundenbeginn'], ['none', 'Nie']]]],
     config: (s) => ({ back: s.stBack }),
     board: boardSteeples,
     targets: (st) => { const t = st.turn && STEEPLE[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
-    turnSum: (t) => { const a = sumBy(t, 'adv'); return t.infos.some((x) => x.slip) ? `+${a} ↶` : '+' + a; },
+    turnSum: (t) => { const a = sumBy(t, 'adv'); return t.back || t.infos.some((x) => x.slip) ? `+${a} ↶` : '+' + a; },
     homeScore: (st, p) => { const t = STEEPLE[st.leg.pos[p]]; return t ? '→ ' + tLabel(t) : '✓'; },
     col: ['Quote', (ml) => pct(ml.hitRate)],
     overlaySub: (st, ev) => `<p class="ov-sub">Durch in ${st.legResults.at(-1).darts[ev.p]} Darts</p>`,
@@ -935,8 +949,11 @@ Object.assign(MODES, {
   },
   gallery: {
     label: 'Shooting Gallery', group: 'training',
-    opts: [],
-    config: () => ({}),
+    opts: [
+      ['gaOver', 'Ziel', [['under', '0 oder drunter'], ['exact', 'Genau auf 0']]],
+      ['gaOut', 'Finish', [['single', 'Beliebig'], ['double', 'Double Out'], ['master', 'Master Out']]],
+    ],
+    config: (s) => ({ over: s.gaOver, out: s.gaOut }),
     board: boardGallery,
     turnSum: ptsSum,
     homeScore: (st, p) => `${st.leg.score[p]} P · → ${st.leg.target[p]}`,

@@ -723,6 +723,41 @@ ok('Shooting Gallery: Punkte nach Darts, Fehlversuch 0, weiter mit der nächsten
   assert.equal(st.leg.score[0], 8);
 });
 
+ok('Shooting Gallery: Finish-Optionen, alte Spiele ohne Angabe bleiben bei Double Out auf genau 0', () => {
+  // ohne Angabe (bis 0.7.1): 121 − 60 − 57 = 4, die 4 als Single ist ein Bust, Rest wieder 121
+  let st = replay(game('gallery', {}, 1, 'T20 T19 4'));
+  assert.equal(st.leg.score[0], 0); assert.equal(st.leg.rem[0], 121); assert.equal(st.turns[0].bust, true);
+  // ohne Angabe: Überwerfen ist ein Bust
+  st = replay(game('gallery', {}, 1, 'T20 T19 D20'));
+  assert.equal(st.leg.rem[0], 121); assert.equal(st.turns[0].bust, true);
+  // 0 oder drunter, beliebig: der dritte Dart bringt auf −1 und checkt, 12 Punkte, weiter mit 122
+  st = replay(game('gallery', { over: 'under', out: 'single' }, 1, 'T20 T20 2'));
+  assert.equal(st.leg.score[0], 12); assert.equal(st.leg.target[0], 122); assert.equal(st.leg.rem[0], 122);
+  assert.equal(st.dartEvent.type, 'check');
+  // 0 oder drunter, Double Out: Single unter 0 ist ein Bust, Doppel unter 0 checkt, Rest 1 bleibt spielbar
+  st = replay(game('gallery', { over: 'under', out: 'double' }, 1, 'T20 T20 5'));
+  assert.equal(st.leg.score[0], 0); assert.equal(st.leg.rem[0], 121); assert.equal(st.turns[0].bust, true);
+  st = replay(game('gallery', { over: 'under', out: 'double' }, 1, 'T20 T20 -  D20'));
+  assert.equal(st.leg.score[0], 8); // Rest 1 nach zwei Darts, vierter Dart D20 checkt
+  // genau 0, beliebig: Single auf 0 checkt, Überwerfen bleibt Bust, Rest 1 ist kein Bust
+  st = replay(game('gallery', { over: 'exact', out: 'single' }, 1, 'T20 T20 1'));
+  assert.equal(st.leg.score[0], 12);
+  st = replay(game('gallery', { over: 'exact', out: 'single' }, 1, 'T20 T20 2'));
+  assert.equal(st.leg.score[0], 0); assert.equal(st.turns[0].bust, true);
+  st = replay(game('gallery', { over: 'exact', out: 'single' }, 1, 'T20 T20 -'));
+  assert.equal(st.leg.rem[0], 1); assert.equal(st.turns[0].bust, false);
+  // Master Out: Triple checkt, auf genau 0 und darunter
+  st = replay(game('gallery', { over: 'exact', out: 'master' }, 1, 'T20 T20 -  -  -  -'));
+  assert.equal(st.turns[0].bust, true); // Rest 1 lässt sich mit Master Out nicht checken
+  st = replay(game('gallery', { over: 'exact', out: 'master' }, 1, 'T20 19 T14'));
+  assert.equal(st.leg.score[0], 12);
+  st = replay(game('gallery', { over: 'under', out: 'master' }, 1, 'T20 T20 T1'));
+  assert.equal(st.leg.score[0], 12);
+  // 121 rechnet unverändert mit Double Out auf genau 0
+  st = replay(game('c121', { start: 121, turns: 3, attempts: 10, fail: 'down', lock: true }, 1, 'T20 T19 4'));
+  assert.equal(st.turns[0].bust, true); assert.equal(st.leg.rem[0], 121);
+});
+
 // ---------- Baseball ----------
 const BB = (cfg) => ({ extra: 'bull', seventh: false, ...cfg });
 const innings = (fn) => Array.from({ length: 9 }, (_, i) => fn(i + 1)).join('  ');
@@ -809,6 +844,38 @@ ok('Steeples: Treffer außer der Reihe → nach der Runde zurück, Varianten', (
   assert.equal(st.leg.pos[0], 0); // nie unter den Start
   st = replay(game('steeples', { back: 'one' }, 1, '- - 1'));
   assert.equal(st.leg.pos[0], 1); // daneben zählt nicht als Fehltreffer
+});
+
+ok('Steeples „Runde ohne Treffer": ein Treffer reicht, ohne Treffer ein Feld zurück', () => {
+  // Treffer plus zwei andere Kurszahlen: kein Rückschritt
+  let st = replay(game('steeples', { back: 'miss' }, 1, '1 20 5'));
+  assert.equal(st.leg.pos[0], 1); assert.equal(st.turns[0].back, undefined); assert.equal(st.lastEvent.type, 'turn');
+  assert.equal(st.darts.some((d) => d.slip), false);
+  // mehrere Treffer rücken mehrfach vor, Double springt
+  st = replay(game('steeples', { back: 'miss' }, 1, '1 D2 4'));
+  assert.equal(st.leg.pos[0], 4);
+  // Runde ohne Treffer: ein Feld zurück, egal ob daneben oder andere Zahl
+  st = replay(game('steeples', { back: 'miss' }, 1, '1 2 20  20 5 -'));
+  assert.equal(st.leg.pos[0], 1); assert.equal(st.turns[1].back, 1); assert.equal(st.lastEvent.type, 'back');
+  st = replay(game('steeples', { back: 'miss' }, 1, '1 2 20  - - -'));
+  assert.equal(st.leg.pos[0], 1);
+  // nie unter den Start
+  st = replay(game('steeples', { back: 'miss' }, 1, '- - -'));
+  assert.equal(st.leg.pos[0], 0); assert.equal(st.turns[0].back, 0); assert.equal(st.lastEvent.type, 'turn');
+  // zwei Spieler: der Treffer des einen schützt den anderen nicht
+  st = replay(game('steeples', { back: 'miss' }, 2, '1 2 3  1 - -  - - -  2 - -'));
+  assert.equal(st.leg.pos[0], 2); assert.equal(st.leg.pos[1], 2);
+});
+
+ok('Steeples: kein Rückschritt in der Siegrunde', () => {
+  const run = '1 2 3  4 5 6  7 8 9  10 11 12  13 14 15  16 17 18  ';
+  // 19, dann außer der Reihe die 5, dann T20 … Bull fehlt noch: normale Runde mit Rückschritt
+  let st = replay(game('steeples', { back: 'one' }, 1, run + '19 5 20'));
+  assert.equal(st.leg.pos[0], 19);
+  // Siegrunde mit Fehltreffer davor: Sieg zählt, kein „Zurück"
+  st = replay(game('steeples', { back: 'one' }, 1, run + '19 20 -  5 BULL'));
+  assert.equal(st.finished, true); assert.equal(st.turns.at(-1).back, undefined);
+  assert.equal(st.legResults[0].scores[0], 21);
 });
 
 // ---------- War ----------
@@ -919,9 +986,9 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 7);
+  assert.equal(SCHEMA, 8);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
-  await assert.rejects(importAll({ ...base, schema: 7, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+  await assert.rejects(importAll({ ...base, schema: 8, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
 });
 
 // Ein Lösch-Vermerk hat keinen Modus. Er darf nicht als „unbekannter Modus" gelten, sonst lehnte der Import jede

@@ -221,12 +221,12 @@ export const HELP = {
   steeples: {
     goal: 'Lauf den Kurs von 1 bis 20 und zum Schluss Bull als Erster.',
     turn: 'Drei Darts auf deine aktuelle Zahl. Jeder Treffer bringt dich weiter. Double überspringt die nächste Zahl, Triple die nächsten zwei. Über Bull springst du nicht hinweg.',
-    score: 'Triffst du eine andere Zahl des Kurses, also außer der Reihe, musst du nach der Runde zurück. Das gilt auch für Bull, solange es nicht dein Ziel ist. Daneben hat keine Folgen. Mehrere Fehltreffer in einer Runde kosten nur einmal.',
+    score: 'Je nach Einstellung kostet dich eine Runde ein Feld. Runde ohne Treffer: Trifft keiner deiner drei Darts das Ziel, gehst du ein Feld zurück. Fehltreffer: Triffst du eine andere Zahl des Kurses, also außer der Reihe, musst du nach der Runde zurück. Das gilt auch für Bull, solange es nicht dein Ziel ist. Daneben hat dann keine Folgen, mehrere Fehltreffer in einer Runde kosten nur einmal. Vor die 1 fällt niemand.',
     win: 'Wer zuerst Bull trifft, gewinnt.',
     opts: {
-      stBack: 'Die Regel sagt nur „zurück auf die vorige Zahl". Ein Feld zurück: Du verlierst ein Ziel. Auf Rundenbeginn: Du stehst wieder dort, wo deine Runde begann, ihr Fortschritt verfällt. Ohne Strafe: Fehltreffer haben keine Folgen.',
+      stBack: 'Runde ohne Treffer: die schnellere Hausregel, ein Treffer je Runde reicht, andere Zahlen kosten nichts. Fehltreffer, 1 Feld: die strenge Regel der Quelle, sie sagt nur „zurück auf die vorige Zahl", du verlierst ein Ziel. Fehltreffer, Rundenbeginn: Du stehst wieder dort, wo deine Runde begann, ihr Fortschritt verfällt. Nie: kein Rückschritt.',
     },
-    example: 'Ziel 7: Du triffst D7 und stehst auf 9. Dann triffst du die 16. Nach der Runde geht es auf der 8 weiter.',
+    example: 'Ziel 7 mit „Runde ohne Treffer": Du triffst D7 und stehst auf 9, die 16 danach kostet nichts. Mit „Fehltreffer: 1 Feld" geht es nach derselben Runde auf der 8 weiter.',
   },
   war: {
     goal: 'Erobere mehr Felder als die anderen und halte sie.',
@@ -306,11 +306,14 @@ export const HELP = {
   },
   gallery: {
     goal: 'Checke 121 bis 130 nacheinander mit möglichst wenigen Darts.',
-    turn: 'Für jede Zahl hast du höchstens 9 Darts, also 3 Runden. Du zählst wie in X01 herunter und musst mit einem Doppel genau auf 0.',
-    score: 'Punkte je Check: mit 3 Darts 12, mit 4 Darts 8, mit 5 Darts 6, mit 6 Darts 5, mit 7 Darts 3, mit 8 Darts 2, mit 9 Darts 1. Ohne Check gibt es 0 und es geht mit der nächsten Zahl weiter. Überwerfen ist ein Bust.',
+    turn: 'Für jede Zahl hast du höchstens 9 Darts, also 3 Runden. Du zählst wie in X01 herunter. Wann die Zahl gecheckt ist, legen die Einstellungen fest.',
+    score: 'Punkte je Check: mit 3 Darts 12, mit 4 Darts 8, mit 5 Darts 6, mit 6 Darts 5, mit 7 Darts 3, mit 8 Darts 2, mit 9 Darts 1. Ohne Check gibt es 0 und es geht mit der nächsten Zahl weiter. Ein Bust setzt dich auf den Stand vor der Runde zurück.',
     win: 'Die höchste Summe nach 10 Zahlen gewinnt, höchstens 120. Gleichstand geht ins Stechen mit der nächsten Zahl.',
-    opts: {},
-    example: '122 mit T20, T18, D4 ist ein Check in drei Darts und bringt 12 Punkte.',
+    opts: {
+      gaOver: '0 oder drunter: Die Zahl ist gecheckt, sobald dein Rest 0 erreicht oder darunter fällt. Genau auf 0: Überwerfen ist ein Bust.',
+      gaOut: 'Beliebig: Jeder Dart darf checken. Double Out: Der checkende Dart muss ein Doppel sein, Bull zählt als Doppel. Master Out: Doppel oder Triple. Checkt ein anderer Dart, ist das ein Bust.',
+    },
+    example: '122 mit T20, T18, D4 ist ein Check in drei Darts und bringt 12 Punkte. Mit „0 oder drunter" und „Beliebig" reichen auch T20, T20 und die 5.',
   },
   jdc: {
     goal: 'Hol in drei Teilen möglichst viele Punkte.',
