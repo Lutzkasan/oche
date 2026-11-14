@@ -1,9 +1,12 @@
 // Statistiken entstehen aus denselben Replays wie das Spiel selbst. Neue Kennzahlen gelten damit rückwirkend.
 // Je Modus ein Eintrag in STATS: init() legt die Zähler an, add(acc, ctx) zählt ein Spiel, fin(acc) rechnet Quoten.
-// Gemeinsam für alle: matches, won, legs, legsWon, darts, history (Verlauf je Match), optional bestLeg.
+// Gemeinsam für alle: matches, won, solo, legs, vsLegs, legsWon, darts, history (Verlauf je Match), optional bestLeg.
+// Sieg-Wertung nur gegen Gegner (ab 0.7.1): matches, won, vsLegs und legsWon zählen Spiele mit mindestens zwei
+// Spielern. Ein Spiel allein hat keinen Gegner, es zählt als solo. Bis 0.7.0 galt der einzige Spieler als Sieger,
+// Trainingsmodi zeigten deshalb „12 / 12 gewonnen". legs bleibt die Zahl aller Legs (Nenner für Werte je Leg).
 import { replay } from './engine.js';
 
-const base = () => ({ matches: 0, won: 0, legs: 0, legsWon: 0, darts: 0, history: [] });
+const base = () => ({ matches: 0, won: 0, solo: 0, legs: 0, vsLegs: 0, legsWon: 0, darts: 0, history: [] });
 const legKey = (x) => x.setNo + '-' + x.legNo;
 const rate = (a, b) => (b ? a / b : null);
 const hitsOf = (ctx) => ctx.myDarts.filter((d) => d.hit).length;
@@ -376,15 +379,17 @@ export function playerStats(playerId, games) {
     const s = out[g.mode];
     const st = replayCached(g);
     const finished = g.status === 'finished';
-    const won = st.winner === p;
+    const solo = g.playerIds.length === 1;
+    const won = solo ? null : st.winner === p; // null = ohne Gegner, weder Sieg noch Niederlage
     if (finished) {
-      s.matches++;
-      if (won) s.won++;
+      if (solo) s.solo++;
+      else { s.matches++; if (won) s.won++; }
     }
     for (const r of st.legResults) {
       s.legs++;
+      if (!solo) s.vsLegs++;
       if (r.winner === p) {
-        s.legsWon++;
+        if (!solo) s.legsWon++;
         if ('bestLeg' in s && (s.bestLeg === null || r.darts[p] < s.bestLeg)) s.bestLeg = r.darts[p];
       }
     }

@@ -15,6 +15,8 @@ export const S = {
   setup: null, statsFor: null, newColor: COLORS[0],
   statsFilter: null, heatSel: null,
   persisted: null, lastExport: null,
+  // Einträge, die sich nicht lesen lassen. Sie bleiben im Speicher und in jeder Sicherung, die App überspringt sie.
+  broken: { players: [], games: [] },
 };
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,13 +35,19 @@ export const player = (id) => S.players.find((p) => p.id === id) || FORGOTTEN;
 export const pcolor = (p) => player(S.game.playerIds[p]).color;
 export const pname = (p) => player(S.game.playerIds[p]).name;
 
+// Enter im Eingabefeld löst den Standardknopf des Formulars aus, und das ist der erste Submit-Knopf im Dokument.
+// Bis 0.7.0 war das „Abbrechen", weil es links steht: Enter verwarf die Eingabe. Deshalb steht bei Dialogen mit
+// Eingabefeld ein unsichtbarer Knopf mit dem Wert des Hauptknopfs davor. Dialoge ohne Hauptknopf (Zurücksetzen)
+// bekommen keinen, dort bricht Enter weiter ab.
 export function dialog({ title, text = '', html = '', input = null, cls = '', buttons = [{ label: 'OK', value: 'ok', primary: true }] }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.className = 'dlg ' + cls;
+    const def = input !== null ? buttons.find((b) => b.primary) : null;
     d.innerHTML = `<form method="dialog">
       <h3>${esc(title)}</h3>${text ? `<p>${text}</p>` : ''}${html}
       ${input !== null ? `<input name="v" value="${esc(input)}" maxlength="24" autocomplete="off">` : ''}
+      ${def ? `<button value="${def.value}" class="dlg-default" tabindex="-1" aria-hidden="true"></button>` : ''}
       <div class="dlg-btns">${buttons.map((b) => `<button value="${b.value}" class="${b.primary ? 'btn primary' : b.danger ? 'btn danger' : 'btn'}">${esc(b.label)}</button>`).join('')}</div>
     </form>`;
     document.body.append(d);
@@ -63,6 +71,7 @@ export function toast(msg, action) {
   if (action) el.querySelector('button').onclick = () => { action.run(); el.remove(); };
   box.append(el);
   if (!action) setTimeout(() => el.remove(), 3500);
+  return el;
 }
 
 // Es gibt immer nur einen Flash. Ein neues Ereignis ersetzt das vorige, statt sich darüberzulegen.

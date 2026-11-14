@@ -9,7 +9,7 @@ import {
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.7.0';
+export const APP_VERSION = '0.7.1';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
 // Alles, was die App außerhalb von IndexedDB ablegt. Zurücksetzen löscht genau diese Schlüssel.
@@ -35,10 +35,70 @@ const VIEWS = {
   home: viewHome, players: viewPlayers, setup: viewSetup, game: viewGame, stats: viewStats, data: viewData, results: viewResults,
 };
 
-function render() {
+function paint() {
   $app.innerHTML = VIEWS[S.view]();
   $app.dataset.view = S.view;
   if (S.view === 'stats') bindCharts($app);
+}
+
+// Fehlergrenze (ab 0.7.1). Bis 0.7.0 brach ein einziges Spiel, das sich nicht nachspielen oder anzeigen ließ,
+// jede Ansicht ab, die es berührt, die Startseite eingeschlossen. Die App blieb dann bei jedem Start leer.
+// Jetzt gilt: Scheitert das Zeichnen, werden die betroffenen Spiele beiseitegelegt (setAside) und die Ansicht
+// neu gezeichnet. Liegt es an keinem Spiel, erscheint eine Fehlerseite mit Weg zur Sicherung.
+// Die Form der Einträge prüft schon loadAll (db.js, validGame). Hier landet, was erst beim Nachspielen auffällt.
+function render(quiet = false) {
+  let err;
+  // Höchstens drei Anläufe: Spiele aus der Prüfung beiseitelegen, dann notfalls das offene Spiel, dann aufgeben.
+  for (let i = 0; i < 3; i++) {
+    try { return paint(); } catch (e) {
+      console.error(e);
+      err = e;
+      if (!setAside(true, quiet)) break;
+    }
+  }
+  fatal(err);
+}
+
+// Lässt sich das Spiel nachspielen und in einer Liste anzeigen?
+function gameOk(g) {
+  try {
+    const st = replay(g), rule = RULES[g.mode], ui = MODES[g.mode];
+    rule.title(g.config); rule.subtitle(g.config);
+    g.playerIds.forEach((_, i) => ui.homeScore(st, i));
+    return true;
+  } catch { return false; }
+}
+
+// Legt Spiele beiseite, die sich nicht lesen lassen. Sie bleiben im Speicher und in jeder Sicherung.
+// painting: Das Zeichnen ist gescheitert. Findet die Prüfung dann kein Spiel und ist die Spielansicht offen,
+// liegt es am Brett des offenen Spiels. Bei einem Fehler in einer Aktion gilt dieser Schluss nicht.
+// quiet: ohne eigene Meldung, der Start meldet alles Übersprungene in einer Zeile.
+// Liefert true, wenn etwas beiseitegelegt wurde.
+function setAside(painting = false, quiet = false) {
+  const bad = S.games.filter((g) => !gameOk(g));
+  if (!bad.length && painting && S.view === 'game' && S.game) bad.push(S.game);
+  if (!bad.length) return false;
+  S.games = S.games.filter((g) => !bad.includes(g));
+  S.broken.games.push(...bad.filter((g) => !S.broken.games.includes(g)));
+  if (bad.includes(S.game)) { S.game = null; S.st = null; S.view = 'home'; wake(false); }
+  if (!quiet) toast(`${bad.length === 1 ? '1 Spiel lässt' : bad.length + ' Spiele lassen'} sich nicht lesen und ${bad.length === 1 ? 'wird' : 'werden'} übersprungen. Mehr unter „Daten".`);
+  return true;
+}
+
+function fatal(e) {
+  $app.dataset.view = 'error';
+  $app.innerHTML = `<main class="page"><h2>Diese Ansicht lässt sich nicht anzeigen</h2>
+    <p class="muted">${esc(e?.message || e)}</p>
+    <p>Deine Daten sind unverändert gespeichert. Zieh eine Sicherung, bevor du etwas anderes versuchst.</p>
+    <div class="btn-row"><button class="btn primary" data-a="nav" data-v="home">Zur Startseite</button>
+    <button class="btn" data-a="exportFile">Sicherung als Datei speichern</button></div>
+    <footer class="foot">Oche ${APP_VERSION} · Build ${BUILD}</footer></main>`;
+}
+
+// Fehler in einer Aktion (Tippen auf einen Knopf): betroffene Spiele beiseitelegen, sonst den Fehler melden.
+function failed(e) {
+  console.error(e);
+  if (setAside()) render(); else toast('Das hat nicht geklappt: ' + (e?.message || e));
 }
 
 function topbar(title, extra = '', back = 'home') {
@@ -327,8 +387,9 @@ function heatSection(board) {
 const tile = (label, value, sub = '') => `<div class="stat"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
 const STATS_H = {
   tile, trend,
-  matchTiles: (s) => `${tile('Matches', `${s.won} / ${s.matches}`, 'gewonnen')}${tile('Legs', `${s.legsWon} / ${s.legs}`, 'gewonnen')}`,
-  recent: (h, title, label, d, unit = '') => (h.length ? `<h3 class="sec">Letzte ${title}-Matches <small>${label}</small></h3><div class="list">${h.slice(-10).reverse().map((e) => `<div class="row static"><span class="r-main">${num(e.value, d)}${unit}</span><span class="r-sub">${e.won ? 'Sieg' : 'Niederlage'}</span><span class="r-date">${day(e.at)}</span></div>`).join('')}</div>` : ''),
+  // Siege nur aus Spielen mit Gegner (stats.js). Spiele allein stehen als eigene Kachel ohne Sieg-Wertung.
+  matchTiles: (s) => `${s.matches || s.vsLegs || !s.solo ? tile('Matches', `${s.won} / ${s.matches}`, 'gewonnen') + tile('Legs', `${s.legsWon} / ${s.vsLegs}`, 'gewonnen') : ''}${s.solo ? tile('Solo-Spiele', s.solo, `${s.legs - s.vsLegs} ${s.legs - s.vsLegs === 1 ? 'Leg' : 'Legs'} ohne Gegner`) : ''}`,
+  recent: (h, title, label, d, unit = '') => (h.length ? `<h3 class="sec">Letzte ${title}-Matches <small>${label}</small></h3><div class="list">${h.slice(-10).reverse().map((e) => `<div class="row static"><span class="r-main">${num(e.value, d)}${unit}</span><span class="r-sub">${e.won == null ? 'Solo' : e.won ? 'Sieg' : 'Niederlage'}</span><span class="r-date">${day(e.at)}</span></div>`).join('')}</div>` : ''),
 };
 
 function viewStats() {
@@ -372,6 +433,20 @@ function archiveCard() {
     </section>`;
 }
 
+// Einträge, die die Prüfung (db.js) oder das Nachspielen nicht bestehen. Nur Zahl und Ausweg, keine Inhalte:
+// Was hier liegt, ist ungeprüft und gehört nicht ins HTML.
+function brokenCard() {
+  const g = S.broken.games.length, p = S.broken.players.length;
+  if (!g && !p) return '';
+  const what = [g ? (g === 1 ? '1 Spiel' : `${g} Spiele`) : '', p ? (p === 1 ? '1 Profil' : `${p} Profile`) : ''].filter(Boolean).join(' und ');
+  return `<section class="card">
+      <h3>Nicht lesbare Einträge</h3>
+      <p>${what} ${g + p === 1 ? 'lässt' : 'lassen'} sich mit dieser Version nicht lesen. Die App überspringt ${g + p === 1 ? 'den Eintrag' : 'sie'}, damit alles andere läuft.</p>
+      <p class="muted">Die Einträge liegen weiter im Speicher und stehen in jeder Sicherung. Lag es an der App, erscheinen sie nach einem Update von selbst wieder.</p>
+      <div class="btn-row"><button class="btn danger" data-a="dropBroken">Endgültig entfernen</button></div>
+    </section>`;
+}
+
 function viewData() {
   const finished = S.games.filter((g) => g.status === 'finished').length;
   const persistText = S.persisted === true ? 'Dauerhaft. Android räumt die Daten nicht bei Speichermangel.'
@@ -391,6 +466,7 @@ function viewData() {
       <label class="btn file">Sicherung importieren<input type="file" accept="application/json,.json,text/plain,.txt" data-change="import" hidden></label>
     </section>
     ${archiveCard()}
+    ${brokenCard()}
     <section class="card"><h3>Speicher</h3><p class="muted">${persistText}</p></section>
     <section class="card danger-zone">
       <h3>Zurücksetzen</h3>
@@ -404,9 +480,10 @@ function viewData() {
 // ---------- Aktionen ----------
 function recompute() { S.st = replay(S.game); }
 
-async function saveGame() {
+// Übernimmt den frisch berechneten Stand (S.st) ins Spiel, zeichnet und speichert.
+// Wer die Dartliste ändert, rechnet vorher neu: addEntry beim Wurf, recompute beim Zurücknehmen.
+function saveGame() {
   const g = S.game;
-  recompute();
   g.updatedAt = Date.now();
   if (S.st.finished) {
     g.status = 'finished';
@@ -459,14 +536,28 @@ function announce() {
   }
 }
 
-async function throwDart(s, mOverride) {
+// Hängt einen Dart oder Stopp-Eintrag an und rechnet neu. Wirft die Regel dabei einen Fehler, kommt der
+// Eintrag wieder heraus: Sonst stünde er dauerhaft in der Dartliste, und das Spiel ließe sich nie mehr öffnen.
+// Das fängt nur die Folge ab. Die Ursache wäre ein Fehler in der Regel, der über die Meldung auffällt.
+function addEntry(entry) {
+  S.game.darts.push(entry);
+  try { recompute(); return true; } catch (e) {
+    console.error(e);
+    S.game.darts.pop();
+    recompute();
+    toast('Dieser Wurf ließ sich nicht verarbeiten und wurde nicht gezählt.');
+    return false;
+  }
+}
+
+function throwDart(s, mOverride) {
   if (!S.game || S.st.finished) return;
   let m = mOverride || (s === 0 ? 1 : S.mult);
   if (s === 25 && m === 3) m = 2; // kein Triple-Bull
-  S.game.darts.push({ s, m, t: Date.now() });
+  if (!addEntry({ s, m, t: Date.now() })) return;
   S.mult = 1;
   navigator.vibrate?.(12);
-  await saveGame();
+  saveGame();
   announce();
 }
 
@@ -518,6 +609,9 @@ function addPlayer(name, color) {
 // fehlen dort, .txt und text/plain sind erlaubt. Mit .json lehnte navigator.canShare jede Sicherung ab, und
 // „Teilen" speicherte stillschweigend nur eine Datei. Deshalb geht die Sicherung zum Teilen als .txt hinaus.
 // Der Inhalt ist dasselbe JSON, der Import liest beide Endungen.
+// Liefert true, wenn die Sicherung hinausging, und false, wenn das Teilen abgebrochen wurde. Bis 0.7.0 gab es
+// keine Rückmeldung, das Zurücksetzen lief deshalb auch nach einem Abbruch weiter.
+// Grenze: Ein abgeschlossenes Teilen sagt nicht, ob die Datei am Ziel gespeichert wurde. Das meldet Android nicht.
 async function doExport(share) {
   const data = await db.exportAll();
   const base = `oche-sicherung-${isoDay(Date.now())}`;
@@ -525,7 +619,7 @@ async function doExport(share) {
   const file = share ? new File([json], base + '.txt', { type: 'text/plain' }) : new File([json], base + '.json', { type: 'application/json' });
   if (share && navigator.canShare?.({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Oche-Sicherung', text: `Oche-Sicherung vom ${day(Date.now())}` }); }
-    catch (e) { if (e.name === 'AbortError') return; toast('Teilen fehlgeschlagen. Die Sicherung wird stattdessen als Datei gespeichert.'); download(file); }
+    catch (e) { if (e.name === 'AbortError') return false; toast('Teilen fehlgeschlagen. Die Sicherung wird stattdessen als Datei gespeichert.'); download(file); }
   } else {
     if (share) toast('Dieser Browser kann keine Dateien teilen. Die Sicherung wird als Datei gespeichert.');
     download(file);
@@ -533,6 +627,7 @@ async function doExport(share) {
   S.lastExport = Date.now();
   await db.setMeta('lastExport', S.lastExport);
   render();
+  return true;
 }
 
 function download(file) {
@@ -629,11 +724,11 @@ const A = {
   dart: (v) => throwDart(Number(v)),
   bull: () => throwDart(25, 2),
   // „Fertig": Aufnahme vor dem dritten Dart beenden (Golf, Follow the Leader). Gespeichert als Stopp-Eintrag.
-  stop: async () => {
+  stop: () => {
     if (!S.game || !canStop(S.st)) return;
-    S.game.darts.push({ s: 0, m: 0, stop: true, t: Date.now() });
+    if (!addEntry({ s: 0, m: 0, stop: true, t: Date.now() })) return;
     S.mult = 1;
-    await saveGame();
+    saveGame();
     announce();
   },
   // Blind Killer: Der Werfer sieht seine verdeckte Zahl, die anderen schauen weg.
@@ -643,12 +738,13 @@ const A = {
     if (r.btn !== 'ok') return;
     dialog({ title: `${pname(p)}, deine Zahl`, html: `<p class="peek-num" style="--pc:${pcolor(p)}">${S.st.cfg.numbers[p]}</p>`, buttons: [{ label: 'Verdecken', value: 'ok', primary: true }] });
   },
-  undo: async () => {
+  undo: () => {
     if (!S.game.darts.length) return;
     S.game.darts.pop();
     S.mult = 1;
     S.overlaySeen = S.game.darts.length;
-    await saveGame();
+    recompute();
+    saveGame();
   },
   dismiss: () => { S.overlaySeen = S.game.darts.length; render(); },
   gameMenu: async () => {
@@ -674,6 +770,22 @@ const A = {
     saveStatsFilter(); render();
   },
   heatPick: (v) => { S.heatSel = v; render(); },
+  // Nicht lesbare Einträge endgültig entfernen: Lösch-Vermerk je Eintrag, wie jedes andere Löschen.
+  dropBroken: async () => {
+    const n = S.broken.games.length + S.broken.players.length;
+    const r = await dialog({
+      title: n === 1 ? 'Eintrag endgültig entfernen?' : `${n} Einträge endgültig entfernen?`,
+      text: 'Zieh vorher eine Sicherung, wenn du die Einträge noch untersuchen lassen willst. Das Entfernen lässt sich nicht rückgängig machen.',
+      buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Entfernen', value: 'ok', danger: true }],
+    });
+    if (r.btn !== 'ok') return;
+    try {
+      for (const store of ['players', 'games']) for (const x of S.broken[store]) await db.remove(store, x.id);
+      S.broken = { players: [], games: [] };
+      toast('Entfernt.');
+    } catch (e) { toast('Entfernen fehlgeschlagen: ' + e.message); }
+    render();
+  },
   exportShare: () => doExport(true),
   exportFile: () => doExport(false),
   // Zurücksetzen in drei Schritten: Sicherung anbieten, Wort eintippen, dann alles leeren.
@@ -685,10 +797,11 @@ const A = {
       buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Teilen', value: 'share' }, { label: 'Als Datei', value: 'file' }, { label: 'Ohne Sicherung weiter', value: 'go', danger: true }],
     });
     if (!['share', 'file', 'go'].includes(r.btn)) return;
-    if (r.btn !== 'go') await doExport(r.btn === 'share');
+    const saved = r.btn !== 'go';
+    if (saved && !(await doExport(r.btn === 'share'))) { toast('Nicht zurückgesetzt: Die Sicherung wurde abgebrochen.'); return; }
     const c = await dialog({
       title: 'Wirklich alles löschen?',
-      text: `Das lässt sich nicht rückgängig machen. Tippe ${RESET_WORD} ein, um zu bestätigen.`,
+      text: `${saved ? 'Prüf zuerst, ob die Sicherung angekommen ist. ' : ''}Das lässt sich nicht rückgängig machen. Tippe ${RESET_WORD} ein, um zu bestätigen.`,
       input: '',
       buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Endgültig zurücksetzen', value: 'ok', danger: true }],
     });
@@ -714,7 +827,10 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]');
   if (!el || el.disabled) return;
   e.preventDefault();
-  A[el.dataset.a]?.(el.dataset.v, el);
+  try {
+    const r = A[el.dataset.a]?.(el.dataset.v, el);
+    if (r && typeof r.catch === 'function') r.catch(failed);
+  } catch (err) { failed(err); }
 });
 
 document.addEventListener('submit', async (e) => {
@@ -741,7 +857,7 @@ document.addEventListener('change', async (e) => {
     const counts = await db.importAll(JSON.parse(await file.text()));
     await loadAll();
     render();
-    dialog({ title: 'Import abgeschlossen', text: `${counts.players} Spieler und ${counts.games} Spiele übernommen oder aktualisiert.${counts.removed ? ` ${counts.removed} gelöschte Einträge entfernt.` : ''}` });
+    dialog({ title: 'Import abgeschlossen', text: `${counts.players} Spieler und ${counts.games} Spiele übernommen oder aktualisiert.${counts.removed ? ` ${counts.removed} gelöschte Einträge entfernt.` : ''}${counts.skipped ? ` ${counts.skipped === 1 ? '1 Eintrag war' : counts.skipped + ' Einträge waren'} nicht lesbar und ${counts.skipped === 1 ? 'wurde' : 'wurden'} übersprungen.` : ''}` });
   } catch (err) {
     dialog({ title: 'Import fehlgeschlagen', text: esc(err.message) });
   }
@@ -758,8 +874,14 @@ async function wake(on) {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.view === 'game') wake(true); });
 
 // ---------- Start ----------
+// Dieselbe Prüfung wie beim Import (db.js): Nur Einträge mit gültiger Form kommen in die App.
+// Der Rest wird übersprungen und unter „Daten" gemeldet. Damit gilt für alles in S.players und S.games,
+// dass id, Farbe und config-Werte nur harmlose Zeichen enthalten. Die Ansichten verlassen sich darauf.
 async function loadAll() {
-  [S.players, S.games] = await Promise.all([db.getLive('players'), db.getLive('games')]);
+  const [players, games] = await Promise.all([db.getLive('players'), db.getLive('games')]);
+  S.players = players.filter(db.validPlayer);
+  S.games = games.filter(db.validGame);
+  S.broken = { players: players.filter((p) => !db.validPlayer(p)), games: games.filter((g) => !db.validGame(g)) };
   S.newColor = nextColor();
   S.lastExport = (await db.getMeta('lastExport')) || null;
 }
@@ -773,7 +895,9 @@ async function boot() {
     $app.innerHTML = `<main class="page"><h2>Speicher nicht verfügbar</h2><p>${esc(e.message)}</p><p>Im Inkognito-Modus oder mit blockierten Website-Daten kann die App nichts speichern.</p></main>`;
     return;
   }
-  render();
+  render(true);
+  const unread = S.broken.games.length + S.broken.players.length;
+  if (unread) toast(`${unread === 1 ? '1 Eintrag lässt' : unread + ' Einträge lassen'} sich nicht lesen und ${unread === 1 ? 'wird' : 'werden'} übersprungen. Mehr unter „Daten".`);
   S.persisted = await db.requestPersistence().catch(() => null);
 
   if ('serviceWorker' in navigator) {
@@ -781,12 +905,20 @@ async function boot() {
     // Neu laden darf nur ein Update, also ein Wechsel von einem vorhandenen Worker zu einem neuen.
     const hadController = Boolean(navigator.serviceWorker.controller);
     const reg = await navigator.serviceWorker.register('./sw.js').catch(() => null);
+    // Ein neuer Worker wartet, bis er übernehmen darf. Der Hinweis hing bis 0.7.0 nur an updatefound, also am
+    // Moment der Installation. Lag der Worker beim Start schon bereit (Seite neu geladen, Hinweis nie angetippt),
+    // kam kein Hinweis mehr, und die alte Version lief weiter. Deshalb prüft der Start auch reg.waiting.
+    // Es gibt immer nur einen Hinweis. Ein neuerer Worker ersetzt den vorigen.
+    let offered = null;
+    const offer = (w) => {
+      offered?.remove();
+      offered = toast('Neue Version verfügbar.', { label: 'Aktualisieren', run: () => w.postMessage('skipWaiting') });
+    };
+    if (reg?.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
     reg?.addEventListener('updatefound', () => {
       const w = reg.installing;
       w?.addEventListener('statechange', () => {
-        if (w.state === 'installed' && navigator.serviceWorker.controller) {
-          toast('Neue Version verfügbar.', { label: 'Aktualisieren', run: () => w.postMessage('skipWaiting') });
-        }
+        if (w.state === 'installed' && navigator.serviceWorker.controller) offer(w);
       });
     });
     let reloading = false;

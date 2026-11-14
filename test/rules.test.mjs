@@ -13,7 +13,7 @@ import { hareTarget } from '../js/rules/hare.js';
 import { jdcPlan, jdcGrade } from '../js/rules/jdc.js';
 import { galleryPoints } from '../js/rules/gallery.js';
 import { outStep } from '../js/rules/checks.js';
-import { importAll, mergeItems, tombstone, SCHEMA } from '../js/db.js';
+import { importAll, mergeItems, tombstone, SCHEMA, sanitize, validGame, validPlayer, validConfig } from '../js/db.js';
 
 // Schreibweise der Darts: 20, D20, T20, 25, BULL, - (daneben), X (Aufnahme beenden, Taste „Fertig")
 const D = (txt) => txt.split(/\s+/).filter(Boolean).map((t) => {
@@ -1176,6 +1176,88 @@ ok('Statistik: neue Modi (Golf, Gallery, JDC, Follow, Hare, Doppel-Training, Kno
   assert.equal(ko.strikes, 1); assert.equal(ko.ppr, 0);
   const gt = playerStats('p1', [{ ...game('gotcha', GT(), 2, '20 20 -  20 - 20'), status: 'active' }]).gotcha;
   assert.equal(gt.kills, 1); assert.equal(gt.avg, 40);
+});
+
+// ---------- 0.7.1: Sieg-Wertung nur gegen Gegner ----------
+// Bis 0.7.0 galt der einzige Spieler eines Spiels als Sieger. Trainingsmodi zeigten „12 / 12 gewonnen".
+ok('Statistik: Spiele allein zählen als Solo, Siege nur gegen Gegner', () => {
+  const X = { start: 40, in: 'single', out: 'double' };
+  const solo = done(game('x01', X, 1, 'D20'));
+  const win = done(game('x01', X, 2, 'D20'));
+  const loss = done(game('x01', X, 2, '- - -  D20'));
+  const s = playerStats('p0', [solo, win, loss]).x01;
+  assert.equal(s.solo, 1); assert.equal(s.matches, 2); assert.equal(s.won, 1);
+  assert.equal(s.legs, 3); assert.equal(s.vsLegs, 2); assert.equal(s.legsWon, 1);
+  assert.equal(s.bestLeg, 1); // das beste Leg zählt auch allein, es ist eine Dartzahl und kein Sieg
+  assert.deepEqual(s.history.map((e) => e.won).sort(), [false, null, true].sort());
+  const a = playerStats('p0', [done(game('atc', ATC(), 1, Array.from({ length: 20 }, (_, i) => String(i + 1)).join(' ')))]).atc;
+  assert.equal(a.solo, 1); assert.equal(a.matches, 0); assert.equal(a.won, 0); assert.equal(a.legsWon, 0); assert.equal(a.history[0].won, null);
+});
+
+// ---------- 0.7.1: Prüfung der Einträge ----------
+const PL = (over = {}) => ({ id: 'p0', name: 'Anna', color: '#e5484d', archived: false, createdAt: 1, updatedAt: 1, ...over });
+const GM = (over = {}) => ({ id: 'g1', mode: 'x01', config: { start: 501, in: 'single', out: 'double', legs: 1, sets: 1 }, playerIds: ['p0', 'p1'],
+  darts: [{ s: 20, m: 3, t: 5 }, { s: 0, m: 1, t: 6 }], status: 'active', winnerId: null, createdAt: 1, updatedAt: 2, finishedAt: null, ...over });
+
+ok('Prüfung: gültige Profile und Spiele bestehen, auch in der Form älterer Versionen', () => {
+  assert.equal(validPlayer(PL()), true);
+  assert.equal(validPlayer({ id: 'p0', name: 'Anna', color: '#E5484D' }), true); // ohne archived und Zeitstempel
+  assert.equal(validPlayer(PL({ id: '3f2c1a9e-8b7d-4c6e-9f10-aabbccddeeff', name: 'Jürgen "The Power" <Müller>' })), true); // Namen sind frei
+  assert.equal(validGame(GM()), true);
+  assert.equal(validGame(GM({ darts: [{ s: 20, m: 1 }, { s: 0, m: 0, stop: true }], excluded: true, status: 'finished', winnerId: 'p1', finishedAt: 9 })), true);
+  const { winnerId, finishedAt, createdAt, ...old } = GM();
+  assert.equal(validGame(old), true);
+});
+
+ok('Prüfung: beschädigte und manipulierte Einträge fallen durch', () => {
+  for (const bad of [null, 'x', [], PL({ id: 5 }), PL({ id: 'a"b' }), PL({ name: '' }), PL({ name: '   ' }), PL({ name: undefined }), PL({ name: 7 }),
+    PL({ color: 'red' }), PL({ color: '#fff' }), PL({ color: '#e5484d" onclick="x' }), PL({ color: '#e5484d;background:url(x)' }), PL({ updatedAt: 'gestern' })]) {
+    assert.equal(validPlayer(bad), false, JSON.stringify(bad));
+  }
+  for (const bad of [null, [], GM({ id: '<img>' }), GM({ mode: 'darts9000' }), GM({ mode: 'constructor' }), GM({ mode: undefined }), GM({ config: null }), GM({ config: [] }),
+    GM({ config: { start: 501, hook: { a: 1 } } }), GM({ config: { targets: ['20', '<img src=x onerror=alert(1)>'] } }), GM({ config: { start: '501"><script>' } }),
+    GM({ playerIds: [] }), GM({ playerIds: 'p0' }), GM({ playerIds: ['p0', 3] }), GM({ playerIds: ['p0', 'a b'] }), GM({ darts: null }), GM({ darts: [{ s: 21, m: 1 }] }),
+    GM({ darts: [{ s: 20, m: 4 }] }), GM({ darts: [{ s: '20', m: 1 }] }), GM({ darts: [{ s: 20.5, m: 1 }] }), GM({ darts: [{ s: 20, m: 1, t: 'x' }] }), GM({ darts: [{ s: 5, m: 0, stop: true }] }),
+    GM({ darts: [null] }), GM({ status: 'kaputt' }), GM({ winnerId: '"><b>' }), GM({ updatedAt: '2' }), GM({ excluded: 'ja' })]) {
+    assert.equal(validGame(bad), false, JSON.stringify(bad));
+  }
+});
+
+// Die Prüfung der config ist bewusst allgemein gehalten. Dieser Test sichert, dass sie kein echtes Spiel abweist:
+// jede Kombination der Setup-Optionen jedes Modus, so wie die App sie beim Start anlegt, mit ein paar Darts.
+ok('Prüfung: jede Einstellung jedes Modus besteht, so wie die App sie anlegt', async () => {
+  const { MODES } = await import('../js/modes.js');
+  assert.deepEqual(Object.keys(MODES).sort(), Object.keys(RULES).sort());
+  const product = (lists) => lists.reduce((acc, l) => acc.flatMap((a) => l.map((v) => [...a, v])), [[]]);
+  let count = 0;
+  for (const [mode, ui] of Object.entries(MODES)) {
+    const rule = RULES[mode];
+    const n = Math.max(rule.minPlayers || 1, Math.min(3, rule.maxPlayers || 3));
+    for (const combo of product(ui.opts.map(([, , choices]) => choices.map(([v]) => v)))) {
+      const setup = Object.fromEntries(ui.opts.map(([k], i) => [k, combo[i]]));
+      const base = { ...ui.config(setup), legs: 2, sets: 1 };
+      const config = JSON.parse(JSON.stringify(prepareConfig(mode, ui.prepare ? ui.prepare(base, n) : base, n))); // wie nach Speichern und Laden
+      assert.equal(validConfig(config), true, `${mode} ${JSON.stringify(config)}`);
+      const g = GM({ mode, config, playerIds: Array.from({ length: n }, (_, i) => 'p' + i), darts: D('T20 D5 - 25 BULL 1 19 7 3').map((d, i) => ({ ...d, t: i })) });
+      assert.equal(validGame(g), true, mode);
+      assert.equal(sanitize({ players: [], games: [g] }).games.length, 1, `${mode} lässt sich nicht nachspielen: ${JSON.stringify(config)}`);
+      count++;
+    }
+  }
+  assert.ok(count > 150, String(count));
+});
+
+ok('Sicherung: nicht lesbare Einträge werden übersprungen und gezählt, der Rest bleibt', () => {
+  const noNumbers = GM({ id: 'g3', mode: 'killer', config: { lives: 3, zone: 'double', selfHit: true, legs: 1, sets: 1 }, darts: [{ s: 20, m: 2, t: 1 }] }); // gültige Form, wirft beim Nachspielen
+  const data = {
+    players: [PL(), PL({ id: 'p1', color: 'javascript:alert(1)' }), tombstone('p2', 5), { id: 'x y', deleted: true, updatedAt: 1 }],
+    games: [GM(), GM({ id: 'g2', config: null }), noNumbers, tombstone('g4', 7), 'Unsinn'],
+  };
+  const r = sanitize(data);
+  assert.deepEqual(r.players.map((p) => p.id), ['p0', 'p2']);
+  assert.deepEqual(r.games.map((g) => g.id), ['g1', 'g4']);
+  assert.equal(r.skipped, 5);
+  assert.equal(sanitize({ players: [PL()], games: [GM()] }).skipped, 0);
 });
 
 await Promise.all(pending);

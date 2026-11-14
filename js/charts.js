@@ -36,7 +36,7 @@ export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
   const dense = n > 60;
   const raw = dense
     ? `<polyline class="raw" points="${entries.map((e, i) => `${x(i)},${y(e.value)}`).join(' ')}"/>`
-    : entries.map((e, i) => `<circle cx="${x(i)}" cy="${y(e.value)}" r="4.5" class="pt ${e.won ? 'won' : 'lost'}"/>`).join('');
+    : entries.map((e, i) => `<circle cx="${x(i)}" cy="${y(e.value)}" r="4.5" class="pt ${e.won == null ? 'solo' : e.won ? 'won' : 'lost'}"/>`).join('');
   const trend = n > 1 ? `<polyline class="trend" points="${roll.map((v, i) => `${x(i)},${y(v)}`).join(' ')}"/>` : '';
 
   const data = { x: entries.map((_, i) => x(i)), y: entries.map((e) => y(e.value)), v: entries.map((e) => f(e.value, decimals)),
@@ -52,7 +52,9 @@ export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
     <figcaption class="legend">
       <span><svg viewBox="0 0 24 10"><line x1="1" x2="23" y1="5" y2="5" class="trend"/></svg>Schnitt der letzten ${window}</span>
       ${dense ? '<span><svg viewBox="0 0 24 10"><line x1="1" x2="23" y1="5" y2="5" class="raw"/></svg>einzelnes Match</span>'
-        : '<span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="pt won"/></svg>Sieg</span><span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="pt lost"/></svg>Niederlage</span>'}
+        : [['won', 'Sieg', (e) => e.won === true], ['lost', 'Niederlage', (e) => e.won === false], ['solo', 'Solo', (e) => e.won == null]]
+          .filter(([, , has]) => entries.some(has))
+          .map(([cls, label]) => `<span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="pt ${cls}"/></svg>${label}</span>`).join('')}
     </figcaption>
   </figure>`;
 }
@@ -66,7 +68,7 @@ export function bindCharts(root) {
     const show = (i) => {
       cross.setAttribute('x1', d.x[i]); cross.setAttribute('x2', d.x[i]); cross.setAttribute('visibility', 'visible');
       sel.setAttribute('cx', d.x[i]); sel.setAttribute('cy', d.y[i]); sel.setAttribute('visibility', 'visible');
-      out.innerHTML = `<b>${d.v[i]}</b><span>${d.at[i]} · ${d.won[i] ? 'Sieg' : 'Niederlage'}</span><span class="r">Schnitt <b>${d.r[i]}</b></span>`;
+      out.innerHTML = `<b>${d.v[i]}</b><span>${d.at[i]} · ${d.won[i] == null ? 'Solo' : d.won[i] ? 'Sieg' : 'Niederlage'}</span><span class="r">Schnitt <b>${d.r[i]}</b></span>`;
     };
     const pick = (ev) => {
       const box = svg.getBoundingClientRect();

@@ -1,5 +1,5 @@
 // IndexedDB-Speicher: players, games, meta. Export/Import als JSON für den Gerätewechsel.
-import { RULES } from './engine.js';
+import { RULES, replay } from './engine.js';
 const DB_NAME = 'oche';
 const DB_VERSION = 1;
 // Schema der Sicherung. 2 = Modi atc, shanghai, killer. 3 = zusätzlich bobs, halveit, c121.
@@ -22,6 +22,57 @@ export const SCHEMA = 7;
 // neueres updatedAt und gewinnt deshalb gegen jede ältere Kopie, auch auf einem anderen Tablet.
 export const isDeleted = (x) => Boolean(x?.deleted);
 export const tombstone = (id, now = Date.now()) => ({ id, deleted: true, updatedAt: now });
+
+// ---------- Prüfung der Einträge (ab 0.7.1) ----------
+// Bis 0.7.0 prüfte der Import nur die Hülle der Sicherung und den Spielmodus. Der Inhalt eines Eintrags ging
+// ungeprüft in den Speicher und von dort in jede Ansicht. Ein Spiel ohne gültige config oder ein Profil ohne
+// Namen warf dann bei jedem Start einen Fehler, und id, Farbe und config-Werte standen ungeprüft im HTML.
+// Deshalb gilt jetzt an beiden Grenzen dieselbe Prüfung: beim Import (sanitize) und beim Laden aus dem
+// Speicher (app.js, loadAll). Was sie nicht besteht, wird übersprungen und gemeldet, nie gelöscht.
+// Die Muster lassen nur Zeichen zu, die im HTML nichts bedeuten. Namen sind frei, die Ausgabe schützt sie mit esc.
+const ID = /^[\w-]{1,64}$/;         // crypto.randomUUID und der Ersatz in ui.js (uid)
+const COLOR = /^#[0-9a-f]{6}$/i;    // alle Farben stammen aus COLORS in ui.js
+const WORD = /^[\w-]{0,32}$/;       // Optionswerte wie 'double', 'cutthroat', Zielkürzel wie 'DB'
+const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const isId = (v) => typeof v === 'string' && ID.test(v);
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const isTime = (v) => v == null || isNum(v);
+const isFlag = (v) => v == null || typeof v === 'boolean';
+const isPrim = (v) => v == null || typeof v === 'boolean' || isNum(v) || (typeof v === 'string' && WORD.test(v));
+
+// Regelparameter: flaches Objekt aus Zahlen, Wahrheitswerten, kurzen Wörtern und Listen davon.
+// Das deckt alle Modi ab, ohne je Modus ein eigenes Schema zu pflegen (Test „jede Einstellung jedes Modus").
+export const validConfig = (c) => isObj(c) && Object.keys(c).length <= 32
+  && Object.values(c).every((v) => isPrim(v) || (Array.isArray(v) && v.length <= 64 && v.every(isPrim)));
+
+// Dart { s, m, t } oder Stopp-Eintrag { s: 0, m: 0, stop: true }
+export const validDart = (d) => isObj(d) && isTime(d.t) && (d.stop === true
+  ? d.s === 0 && d.m === 0
+  : Number.isInteger(d.s) && ((d.s >= 0 && d.s <= 20) || d.s === 25) && (d.m === 1 || d.m === 2 || d.m === 3));
+
+export const validPlayer = (p) => isObj(p) && isId(p.id) && typeof p.name === 'string' && p.name.trim().length > 0
+  && p.name.length <= 64 && typeof p.color === 'string' && COLOR.test(p.color)
+  && isFlag(p.archived) && isTime(p.createdAt) && isTime(p.updatedAt);
+
+export const validGame = (g) => isObj(g) && isId(g.id) && typeof g.mode === 'string' && Object.hasOwn(RULES, g.mode)
+  && validConfig(g.config)
+  && Array.isArray(g.playerIds) && g.playerIds.length >= 1 && g.playerIds.length <= 32 && g.playerIds.every(isId)
+  && Array.isArray(g.darts) && g.darts.every(validDart)
+  && (g.status === 'active' || g.status === 'finished') && (g.winnerId == null || isId(g.winnerId))
+  && isFlag(g.excluded) && isTime(g.createdAt) && isTime(g.updatedAt) && isTime(g.finishedAt);
+
+const validTombstone = (x) => isObj(x) && isId(x.id) && x.deleted === true && isTime(x.updatedAt);
+// Lässt sich das Spiel nachspielen? Fängt, was die Form nicht zeigt, etwa fehlende Killer-Zahlen.
+const replays = (g) => { try { replay(g); return true; } catch { return false; } };
+
+// Sicherung auf lesbare Einträge beschränken. Rein, damit die Tests es ohne IndexedDB prüfen können.
+// skipped zählt, was verworfen wurde. Der Import meldet die Zahl.
+export function sanitize(data) {
+  const keep = (list, ok) => list.filter((x) => (isDeleted(x) ? validTombstone(x) : ok(x)));
+  const players = keep(data.players, validPlayer);
+  const games = keep(data.games, (g) => validGame(g) && replays(g));
+  return { players, games, skipped: data.players.length - players.length + data.games.length - games.length };
+}
 
 let dbp = null;
 function open() {
@@ -73,14 +124,16 @@ export async function importAll(data) {
   if (!data || data.app !== 'oche' || !Array.isArray(data.players) || !Array.isArray(data.games)) {
     throw new Error('Das ist keine Oche-Sicherung.');
   }
-  const unknown = [...new Set(data.games.filter((g) => g && typeof g.id === 'string' && !isDeleted(g)).map((g) => g.mode).filter((m) => !RULES[m]))];
+  // Object.hasOwn statt RULES[m]: Ein Modus namens 'constructor' fände sonst die geerbte Eigenschaft und gälte als bekannt.
+  const unknown = [...new Set(data.games.filter((g) => g && typeof g.id === 'string' && !isDeleted(g) && typeof g.mode === 'string').map((g) => g.mode).filter((m) => !Object.hasOwn(RULES, m)))];
   if (data.schema > SCHEMA || unknown.length) {
     throw new Error('Die Sicherung stammt aus einer neueren App-Version' + (unknown.length ? ` (Spielmodus ${unknown.join(', ')})` : '') + '. Bitte zuerst die App aktualisieren.');
   }
+  const clean = sanitize(data);
   const db = await open();
-  const counts = { players: 0, games: 0, removed: 0 };
+  const counts = { players: 0, games: 0, removed: 0, skipped: clean.skipped };
   for (const store of ['players', 'games']) {
-    const { puts, added, removed } = mergeItems(await getAll(store), data[store]);
+    const { puts, added, removed } = mergeItems(await getAll(store), clean[store]);
     counts[store] = added;
     counts.removed += removed;
     await new Promise((resolve, reject) => {
@@ -89,6 +142,9 @@ export async function importAll(data) {
       for (const item of puts) s.put(item);
       t.oncomplete = resolve;
       t.onerror = () => reject(t.error);
+      // Bricht die Transaktion beim Abschluss ab (voller Speicher), feuert nur abort. Ohne diese Zeile
+      // blieb der Import dann ohne Erfolg und ohne Fehlermeldung hängen. tx() weiter oben hatte sie schon.
+      t.onabort = () => reject(t.error || new Error('Speichern abgebrochen.'));
     });
   }
   return counts;
@@ -123,6 +179,7 @@ export async function resetAll() {
     for (const s of ['players', 'games', 'meta']) t.objectStore(s).clear();
     t.oncomplete = resolve;
     t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error || new Error('Zurücksetzen abgebrochen.'));
   });
 }
 

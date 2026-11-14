@@ -197,6 +197,8 @@ small { color: var(--muted); font-weight: 400; }
 .dlg h3 { font-size: 1.6rem; }
 .dlg p { margin: 0; color: var(--muted); }
 .dlg-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* Standardknopf für Enter im Eingabefeld (ui.js, dialog). Unsichtbar und nicht antippbar, aber im Formular. */
+.dlg-default { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); }
 .toast { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
 
@@ -332,6 +334,7 @@ small { color: var(--muted); font-weight: 400; }
 .lchart .pt { stroke: var(--pc); stroke-width: 2; }
 .lchart .pt.won { fill: var(--pc); stroke: var(--panel); }
 .lchart .pt.lost { fill: var(--panel); }
+.lchart .pt.solo { fill: var(--muted); stroke: var(--panel); }
 .lchart .cross { stroke: var(--line-2); stroke-width: 1.5; }
 .lchart .sel { fill: none; stroke: var(--text); stroke-width: 2; }
 .lchart .hit { fill: transparent; cursor: crosshair; }
