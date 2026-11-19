@@ -14,6 +14,8 @@
 //             canStop(leg, p, cfg, turn)  true = der Werfer darf die Aufnahme vor dem dritten Dart beenden.
 //                                  Die App zeigt dann die Taste „Fertig". Sie speichert einen Stopp-Eintrag
 //                                  { s: 0, m: 0, stop: true } in der Dartliste. Er zählt nicht als Dart.
+//                                  Meldet canStop vor dem ersten Dart true, beendet der Stopp eine Aufnahme
+//                                  ohne Dart (Passen in Follow the Leader, ab 0.8.1).
 //             stops(cfg)           false = in dieser Einstellung gibt es kein Aufhören, die App blendet „Fertig“ aus
 //             minPlayers, maxPlayers   Spielerzahl, die das Setup zum Start verlangt
 //             draw(cfg, n, rnd)    Werte, die jedes Leg neu bekommt (Killer-Zahlen, TTT-Raster, Zielfolgen).
@@ -22,6 +24,13 @@
 //                                  Leg 1 steht zusätzlich ausgeschrieben in der config (Anzeige, Spielliste).
 //                                  Spiele ohne seed (vor 0.6.1) behalten ihre Werte für alle Legs.
 // Rundenspiele mit Stechen teilen sich die Auswertung in rules/rounds.js.
+//
+// Regelversion (config.rv, ab 0.8.1): Das Replay rechnet jedes Spiel mit dem Code der aktuellen App nach.
+// Ändert sich eine Regel, würde ein altes Spiel ohne Vermerk anders ausgehen, als es gespielt wurde.
+// Deshalb trägt jedes neue Spiel die Regelversion RV, mit der es angelegt wurde. Eine Regel, die ihr Verhalten
+// ändert, prüft cfg.rv und behält für ältere Spiele den alten Zweig. Fehlt rv (Spiele bis 0.8.0), gilt 0.
+//   1 (0.8.1): Fives Bust schon beim Dart, der über das Ziel bringt. War „1 Treffer“ mit Marks nach Ring.
+//              Mickey Mouse mit Punkten: Doppel-/Triple-Feld zählt den Dartwert, Treffer wählt das punktende Feld.
 import { x01 } from './rules/x01.js';
 import { cricket, mickey, shove } from './rules/cricket.js';
 import { atc, dbl, chase } from './rules/atc.js';
@@ -52,6 +61,7 @@ export const RULES = {
   baseball, fives, steeples, war, scram,
 };
 
+export const RV = 1;
 const zeros = (n) => Array(n).fill(0);
 
 // ---------- Zufall je Leg ----------
@@ -74,10 +84,12 @@ export function legConfig(rule, cfg, n, idx) {
   return rule.draw && cfg.seed != null ? { ...cfg, ...rule.draw(cfg, n, prng(cfg.seed, idx)) } : cfg;
 }
 
-// Beim Start und bei der Revanche: neuer seed, Werte des ersten Legs ausgeschrieben
+// Beim Start und bei der Revanche: aktuelle Regelversion, neuer seed, Werte des ersten Legs ausgeschrieben.
+// Die Revanche eines alten Spiels spielt damit nach den aktuellen Regeln.
 export function prepareConfig(mode, cfg, n, seed = newSeed()) {
   const rule = RULES[mode];
-  return rule.draw ? legConfig(rule, { ...cfg, seed }, n, 0) : cfg;
+  const c = { ...cfg, rv: RV };
+  return rule.draw ? legConfig(rule, { ...c, seed }, n, 0) : c;
 }
 
 export function replay(game) {
@@ -131,9 +143,11 @@ function step(st, d) {
   const p = st.current;
   const t = st.turn;
   if (d.stop) {
-    // Stopp-Eintrag: beendet die Aufnahme, zählt nicht als Dart. Ohne Dart in der Aufnahme bleibt er folgenlos.
+    // Stopp-Eintrag: beendet die Aufnahme, zählt nicht als Dart. Ohne Dart in der Aufnahme nur, wenn die Regel
+    // das Aufhören vor dem ersten Dart erlaubt (Passen). Sonst bleibt er folgenlos, wie bis 0.8.0.
     st.dartEvent = null;
     if (t.darts.length) { t.stopped = true; closeTurn(st, p, t.infos[t.infos.length - 1]); }
+    else if (st.rule.canStop?.(st.leg, p, st.cfg, t)) { t.stopped = true; closeTurn(st, p, {}); }
     return;
   }
   const info = st.rule.applyDart(st.leg, p, d, st.cfg, t.darts.length);

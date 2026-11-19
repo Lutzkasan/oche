@@ -18,7 +18,9 @@ const DB_VERSION = 1;
 // 8 = Steeples mit config.back 'miss', Shooting Gallery mit config.out und config.over. Eine App mit Schema 7
 //     kennt beide Werte nicht: Sie würde Steeples mit der strengen Regel und Shooting Gallery mit Double Out auf
 //     genau 0 nachspielen und so andere Spielstände errechnen.
-export const SCHEMA = 8;
+// 9 = config.rv (Regelversion je Spiel, engine.js). Eine App mit Schema 8 kennt rv nicht: Sie würde Fives,
+//     War „1 Treffer“ und Mickey Mouse mit Punkten nach den alten Regeln nachspielen.
+export const SCHEMA = 9;
 
 // Löschen hinterlässt einen Lösch-Vermerk statt den Eintrag zu entfernen. Grund: Der Import führt nach ID
 // zusammen. Ein spurlos gelöschter Eintrag käme mit jeder älteren Sicherung zurück. Der Vermerk trägt ein

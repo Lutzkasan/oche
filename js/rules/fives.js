@@ -11,7 +11,11 @@
 //      'single': Double und Triple zählen wie das Single (darts-uk, eine der dort genannten Absprachen)
 //   Bull zählt 25 bzw. 50 in beiden Einstellungen.
 // Nicht eingebaut: feste Rundenzahl mit höchster Summe (Tiny Monkey), Strafpunkte (darthelp-Variante).
-// Ausgewertet wird mit dem dritten Dart, eine Runde hat immer drei Darts.
+// Ausgewertet wird mit dem dritten Dart, eine Runde hat sonst immer drei Darts.
+// Bust sofort (ab Regelversion 1, 0.8.1, Wunsch des Nutzers): Bringt schon ein früher Dart die Summe so hoch,
+//   dass Punktestand + Summe ÷ 5 über dem Ziel liegt, endet die Runde mit diesem Dart als Bust. Das Ergebnis
+//   ändert sich nicht: Weitere Darts können die Summe nur erhöhen, die Runde brachte also nie Punkte. Es fallen
+//   nur die sinnlosen Restdarts weg. Bis Regelversion 0 stand der Bust erst mit dem dritten Dart fest.
 
 export const fivesValue = (d, cfg) => (d.s === 0 ? 0 : cfg.dt === 'single' && d.s !== 25 ? d.s : d.s * d.m);
 
@@ -31,7 +35,13 @@ export const fives = {
     leg.sum += v;
     if (d.s === 0) leg.miss = true;
     const info = { pts: 0, marks: 0, bust: false, won: false, value: v, hit: d.s > 0 };
-    if (dartIdx < 2) return info;
+    if (dartIdx < 2) {
+      if (cfg.rv >= 1 && cfg.over !== 'reach' && leg.sum > (cfg.goal - leg.score[p]) * 5) {
+        info.sum = leg.sum;
+        info.bust = true;
+      }
+      return info;
+    }
     // Dritter Dart: Runde auswerten
     info.sum = leg.sum;
     if (leg.miss || leg.sum === 0 || leg.sum % 5) {

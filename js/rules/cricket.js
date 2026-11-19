@@ -11,6 +11,11 @@
 // Mickey Mouse: 20 bis 12 und Bull, optional jedes Doppel und jedes Triple als eigene Felder.
 //   Quellen: Darts Corner (der Reihe nach, ohne Punkte), darts501 (beliebige Reihenfolge, Doppel/Triple-Felder,
 //   Variante mit Punkten). Alles drei ist deshalb Option.
+//   Mit Punkten ab Regelversion 1 (0.8.1, Tablet-Test des Nutzers): Bis dahin hatten Doppel- und Triple-Feld den
+//   Wert 0, Treffer darauf brachten nie Punkte, obwohl die Hilfe das zusagt. Jetzt bringt ein überzähliger
+//   Treffer dort den Wert des Darts (D5 = 10, T20 = 60, sofern die 20 schon zu ist). ANNAHME: darts501 nennt keinen Wert für diese Felder.
+//   Nimmt mehr als ein Feld den Dart an und hat der Werfer alle zu, zählt er auf dem Feld, das ein Gegner
+//   noch offen hat. Bis Regelversion 0 zählte er immer auf der Zahl, auch wenn dort keiner mehr offen war.
 // Shove Ha'penny: 1 bis 9, optional Bull (darts501 ja, World Dolf Federation nein). Überzählige Marks gehen
 //   an einen Gegner, der das Feld noch braucht (beide Quellen). Wer zuerst alles zu hat, gewinnt.
 
@@ -19,8 +24,10 @@ export const NEED = 3;
 const numRow = (n) => ({ key: String(n), label: String(n), hit: (d) => (d.s === n ? d.m : 0), value: n });
 const BULL = { key: 'B', label: 'Bull', hit: (d) => (d.s === 25 ? d.m : 0), value: 25 };
 const BULL_FLAT = { key: 'B', label: 'Bull', hit: (d) => (d.s === 25 ? 1 : 0), value: 25 }; // innen und außen gleich
+// value 0: Punkte nach dem Dartwert (dartValue), nur ab Regelversion 1, siehe Kopf
 const DBL = { key: 'D', label: 'D', hit: (d) => (d.s >= 1 && d.s <= 20 && d.m === 2 ? 1 : 0), value: 0 };
 const TPL = { key: 'T', label: 'T', hit: (d) => (d.m === 3 ? 1 : 0), value: 0 };
+const dartValue = (d) => d.s * d.m;
 const range = (a, b) => Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => (a > b ? a - i : a + i));
 
 export const CRICKET_ROWS = [...range(20, 15).map(numRow), BULL];
@@ -46,23 +53,28 @@ export const closedAll = (leg, rows, p) => rows.every((r) => leg.marks[p][r.key]
 
 // Wählt das Feld für einen Dart.
 // ordered: nur das erste noch offene Feld zählt.
-// Sonst: das erste Feld, das den Dart annimmt und für den Werfer noch offen ist, ersatzweise das erste,
-// das ihn annimmt (dann zählen nur überzählige Marks). Mickey Mouse: Ein D20 schließt damit zuerst die 20
-// und geht erst danach auf das Doppel-Feld (darts501 lässt die Wahl, die Eingabe kennt keine).
-function pickRow(leg, rows, p, d, ordered) {
-  if (ordered) {
+// Sonst: das erste Feld, das den Dart annimmt und für den Werfer noch offen ist. Mickey Mouse: Ein D20 schließt
+// damit zuerst die 20 und geht erst danach auf das Doppel-Feld (darts501 lässt die Wahl, die Eingabe kennt keine).
+// Hat der Werfer alle annehmenden Felder zu, zählen nur überzählige Marks: mit o.score auf dem ersten Feld, das
+// ein Gegner noch offen hat (dort gibt es Punkte), sonst auf dem ersten.
+function pickRow(leg, rows, p, d, o) {
+  if (o.ordered) {
     const r = rows.find((x) => leg.marks[p][x.key] < NEED);
     return r && r.hit(d) ? r : null;
   }
   const take = rows.filter((r) => r.hit(d) > 0);
-  return take.find((r) => leg.marks[p][r.key] < NEED) || take[0] || null;
+  const openFor = (q, r) => leg.marks[q][r.key] < NEED;
+  return take.find((r) => openFor(p, r))
+    || (o.score && take.find((r) => leg.marks.some((_, q) => q !== p && openFor(q, r))))
+    || take[0] || null;
 }
 
 // o.points: 'none' | 'standard' | 'cutthroat'   o.surplus: 'points' | 'gift'   o.ordered: bool
+// o.score: Felder ohne festen Wert (value 0) punkten mit dem Dartwert, und pickRow wählt das punktende Feld
 export function applyMarks(leg, p, d, rows, o) {
   const n = leg.score.length;
   const info = { pts: 0, marks: 0, bust: false, won: false, row: null };
-  const r = d.s > 0 ? pickRow(leg, rows, p, d, o.ordered) : null;
+  const r = d.s > 0 ? pickRow(leg, rows, p, d, o) : null;
   if (!r) return info;
   const h = r.hit(d);
   const before = leg.marks[p][r.key];
@@ -82,11 +94,11 @@ export function applyMarks(leg, p, d, rows, o) {
       left -= give;
       info.gift = (info.gift || 0) + give;
     }
-  } else if (extra > 0 && o.points !== 'none' && r.value) {
+  } else if (extra > 0 && o.points !== 'none' && (r.value || o.score)) {
     const open = [];
     for (let q = 0; q < n; q++) if (q !== p && leg.marks[q][r.key] < NEED) open.push(q);
     if (open.length) {
-      const pts = extra * r.value;
+      const pts = r.value ? extra * r.value : extra * dartValue(d);
       if (o.points === 'cutthroat') open.forEach((q) => (leg.score[q] += pts));
       else leg.score[p] += pts;
       info.pts = pts;
@@ -129,7 +141,7 @@ export const mickey = {
   rows: mickeyRows,
   initLeg: (cfg, n) => initMarks(mickeyRows(cfg), n),
   score: (leg, p) => leg.score[p],
-  applyDart: (leg, p, d, cfg) => applyMarks(leg, p, d, mickeyRows(cfg), { ordered: cfg.ordered, points: cfg.points ? 'standard' : 'none' }),
+  applyDart: (leg, p, d, cfg) => applyMarks(leg, p, d, mickeyRows(cfg), { ordered: cfg.ordered, points: cfg.points ? 'standard' : 'none', score: cfg.points && cfg.rv >= 1 }),
   line: mprLine,
 };
 

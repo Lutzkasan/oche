@@ -94,7 +94,7 @@ export const HELP = {
   follow: {
     goal: 'Triff das Feld, das dir vorgegeben wird, und gib den anderen schwere Felder vor.',
     turn: 'Das Ziel ist ein genaues Feld, zum Beispiel T20 oder D5. Wer anfängt, legt es mit seinem ersten Treffer fest, daneben zählt nicht. Danach hat jeder drei Darts, um das Ziel zu treffen. Wer trifft und noch Darts hat, legt mit seinem nächsten Treffer das neue Ziel fest. Damit endet seine Runde.',
-    score: 'Triffst du das Ziel nicht, verlierst du ein Leben, und der Nächste muss dasselbe Ziel treffen. Triffst du das Ziel mit dem letzten Dart oder danach nur daneben, bleibt das Ziel für den Nächsten stehen. Kommt dein eigenes Ziel zu dir zurück, darfst du passen: Ein Fehlwurf kostet dann nichts.',
+    score: 'Triffst du das Ziel nicht, verlierst du ein Leben, und der Nächste muss dasselbe Ziel treffen. Triffst du das Ziel mit dem letzten Dart oder danach nur daneben, bleibt das Ziel für den Nächsten stehen. Kommt dein eigenes Ziel zu dir zurück, darfst du es versuchen oder mit „Passen“ aussetzen. Beides kostet kein Leben, beim Passen bleibt das Ziel für den Nächsten stehen.',
     win: 'Wer keine Leben mehr hat, ist raus. Der Letzte gewinnt.',
     opts: {
       flSet: 'Erster Treffer: wie oben. Letzter Dart (darts501): Nach dem Treffer legt dein letzter Dart das Ziel fest, „Fertig" beendet die Runde früher. Triffst du das Ziel erst mit dem dritten Dart, bekommst du eine Extra-Runde zum Festlegen. Landet ein festlegender Dart daneben, kostet das ein Leben.',
@@ -133,7 +133,7 @@ export const HELP = {
     opts: {
       mmDt: 'Ja: mit Doppel- und Triple-Feld. Nein: nur 20 bis 12 und Bull.',
       mmOrder: 'Beliebig: Du schließt die Felder in jeder Reihenfolge. Der Reihe nach: erst 20, dann 19 und so weiter bis Bull. Treffer auf spätere Felder zählen vorher nicht.',
-      mmPoints: 'Ohne: Es zählt nur das Schließen. Wie Cricket: Überzählige Treffer auf ein geschlossenes Feld bringen Punkte, solange ein Gegner es offen hat.',
+      mmPoints: 'Ohne: Es zählt nur das Schließen. Wie Cricket: Überzählige Treffer auf ein geschlossenes Feld bringen Punkte, solange ein Gegner es offen hat. Auf Doppel- und Triple-Feld zählt der Wert des Darts, D5 bringt 10. Hast du die Zahl und das Doppel- oder Triple-Feld schon zu, punktet der Dart dort, wo ein Gegner noch offen hat.',
     },
     example: 'Du hast zwei Marks auf der 20 und triffst D20. Ein Mark schließt die 20, der zweite verfällt. Ist die 20 schon zu, zählt D20 als ein Doppel.',
   },
@@ -213,7 +213,7 @@ export const HELP = {
     win: 'Wer zuerst das Ziel erreicht, gewinnt.',
     opts: {
       fvGoal: 'Wie viele Punkte du brauchst. 51 heißt das Spiel „Fifty-One by Fives", 50 und 100 sind in englischen Pubs üblich.',
-      fvOver: 'Genau treffen (Bust): Würdest du über das Ziel kommen, zählt die Runde nicht. Erreichen reicht: Überschreiten gewinnt auch.',
+      fvOver: 'Genau treffen (Bust): Würdest du über das Ziel kommen, zählt die Runde nicht. Das steht oft schon nach dem ersten oder zweiten Dart fest, dann endet die Runde sofort mit Bust. Erreichen reicht: Überschreiten gewinnt auch.',
       fvDt: 'Voller Wert: Double und Triple zählen doppelt und dreifach. Wie Single: Ein Double oder Triple zählt nur den Zahlenwert. Bull zählt immer 25 oder 50.',
     },
     example: 'T20, 20 und 5 sind 85. 85 geteilt durch 5 ergibt 17 Punkte. Mit 20, 20 und 3 hast du 43, das zählt nicht.',
@@ -235,7 +235,7 @@ export const HELP = {
     win: 'Sind alle Felder gesichert, gewinnt, wer die meisten hält. Bei Gleichstand werfen die Gleichen je eine Runde aufs Bull, 25 zählt 1 Mark, Bull 2. Mehr Marks gewinnt.',
     opts: {
       warSet: '15–20 + Bull: sieben Felder wie beim Cricket. 1–20 + Bull: alle 21 Felder, das dauert deutlich länger.',
-      warNeed: '3 Marks: Single 1, Double 2, Triple 3, 25 zählt 1, Bull 2. 1 Treffer: Jeder Treffer zählt eins, egal welcher Ring.',
+      warNeed: '3 Marks: Single 1, Double 2, Triple 3, 25 zählt 1, Bull 2. 1 Treffer: Jeder Treffer erobert ein freies Feld sofort. Stärke und Rückeroberung zählen auch hier Single 1, Double 2, Triple 3.',
     },
     example: 'Anna erobert die 20 mit T20, Stärke 3. In seiner nächsten Runde trifft Ben T20 und 20, das sind 4 Marks. Die 20 gehört jetzt Ben, und Anna hat eine Runde für den Gegenangriff.',
   },

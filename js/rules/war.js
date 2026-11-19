@@ -7,6 +7,9 @@
 //     Die Quelle nennt auch „jedes Doppel" oder „jedes Triple" als Feld. Nicht eingebaut.
 //   need 3: drei Marks wie in Cricket (Single 1, Double 2, Triple 3, 25 = 1, Bull = 2). need 1: ein Treffer.
 //     Bis zur Eroberung sammelt jeder Spieler seine Marks auf einem Feld über mehrere Runden.
+//   Marks nach Ring auch bei need 1 (ab Regelversion 1, 0.8.1, Wunsch des Nutzers): Jeder Treffer erobert ein
+//     freies Feld, Stärke und Rückeroberung zählen aber Single 1, Double 2, Triple 3. Bis Regelversion 0 zählte
+//     bei need 1 jeder Treffer eins, Stärke und Rückeroberung hingen dann nur an der Zahl der Treffer.
 //   ANNAHME Stärke: Der Halter hält ein Feld mit den Marks, die er bis zum Ende seiner Eroberungsrunde darauf
 //     hat. Zurückerobern heißt, in der eigenen nächsten Runde mehr Marks darauf zu werfen. Wer zurückerobert,
 //     wird Halter, und die anderen (auch der alte Halter) bekommen wieder je eine Runde.
@@ -17,7 +20,7 @@
 
 export const WAR_SETS = { cricket: [20, 19, 18, 17, 16, 15, 25], all: [...Array.from({ length: 20 }, (_, i) => i + 1), 25] };
 export const warFields = (cfg) => WAR_SETS[cfg.set] || WAR_SETS.cricket;
-const unit = (d, cfg) => (cfg.need === 1 ? 1 : d.m);
+const unit = (d, cfg) => (cfg.need === 1 && !(cfg.rv >= 1) ? 1 : d.m);
 
 // Kann p dieses Feld gerade erobern oder zurückerobern? Für Brett und Tastenfeld.
 export const warOpen = (leg, f, p) => leg.owner[f] < 0 || (!leg.locked[f] && leg.owner[f] !== p && leg.window[f].includes(p));

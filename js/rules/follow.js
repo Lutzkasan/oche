@@ -14,10 +14,20 @@
 //   Ein festlegender Dart daneben kostet ein Leben. Dann legt der Nächste ein neues Ziel fest.
 //   Kommt das Ziel zu seinem Setzer zurück (alle anderen haben verfehlt), darf er passen:
 //     Er versucht es, verfehlt er, verliert er kein Leben (darts501).
+// Passen (beide Arten, ab 0.8.1): Kommt das Ziel zu seinem Setzer zurück, darf er es versuchen oder passen
+//   (darts501: „pass on their throw or try to hit it"). Bis 0.8.0 gab es dafür keine Taste: Die Anzeige bot
+//   „treffen oder passen" an, „Fertig" war bei „erster Treffer" ausgeblendet und verlangte sonst einen Dart.
+//   Jetzt erlaubt canStop dem Setzer das Aufhören vor dem ersten Dart und nach Fehlwürfen. Die Runde endet ohne
+//   Leben weniger, das Ziel bleibt stehen, der Nächste muss es treffen. Ein Stopp ohne Dart war bis 0.8.0 nicht
+//   möglich, alte Spiele enthalten keinen. Eine Regelversion braucht es deshalb nicht.
 // Wer keine Leben mehr hat, scheidet aus, der Letzte gewinnt.
 // Grenze der Eingabe: Single innen und außen sind ein Feld. Darts Corner trennt sie („big single").
 
 const same = (a, b) => a && b && a.s === b.s && a.m === b.m;
+// Eigenes Ziel kam zurück und ist in dieser Runde noch nicht getroffen. Vor dem ersten Dart ist leg.mode noch
+// der Stand der vorigen Runde, deshalb zählt dort nur das Ziel.
+export const canPass = (leg, p, turn) => Boolean(leg.target) && leg.setter === p
+  && (turn.darts.length === 0 || (leg.mode === 'hit' && leg.hitAt < 0));
 export const alive = (leg) => leg.lives.map((l, i) => (l > 0 ? i : -1)).filter((i) => i >= 0);
 
 export const follow = {
@@ -60,11 +70,14 @@ export const follow = {
   },
 
   // Aufhören ist erlaubt, sobald es nichts mehr zu treffen gibt: beim Festlegen oder nach dem Treffer.
-  // Bei „erster Treffer" endet die Runde mit dem Festlegen von selbst, „Fertig" braucht es dort nicht.
-  stops: (cfg) => cfg.set !== 'first',
-  canStop: (leg, p, cfg, turn) => cfg.set !== 'first' && turn.darts.length > 0 && turn.darts.length < 3 && (leg.mode === 'set' || leg.hitAt >= 0),
+  // Bei „erster Treffer" endet die Runde mit dem Festlegen von selbst, dort gibt es nur das Passen.
+  stops: () => true,
+  canStop: (leg, p, cfg, turn) => turn.darts.length < 3 && (canPass(leg, p, turn)
+    || (cfg.set !== 'first' && turn.darts.length > 0 && (leg.mode === 'set' || leg.hitAt >= 0))),
 
   turnEnd(leg, p, cfg, turn) {
+    // Gepasst vor dem ersten Dart: leg.mode und hitAt stammen noch aus der vorigen Runde, nichts ändert sich
+    if (!turn.darts.length) return null;
     const lose = () => {
       leg.lives[p]--;
       turn.lifeLost = true;

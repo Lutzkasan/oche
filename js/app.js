@@ -9,7 +9,7 @@ import {
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.8.0';
+export const APP_VERSION = '0.8.1';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
 // Alles, was die App außerhalb von IndexedDB ablegt. Zurücksetzen löscht genau diese Schlüssel.
@@ -260,7 +260,7 @@ function keypad(st) {
   return `<section class="pad ${m === 2 ? 'mode-d' : m === 3 ? 'mode-t' : ''} ${nums.length < 20 ? 'cricket' : ''}">
     <div class="mods ${stops ? 'three' : ''}"><button class="mod d ${m === 2 ? 'on' : ''}${hint(2)}" data-a="mult" data-v="2">Double</button>
       <button class="mod t ${m === 3 ? 'on' : ''}${hint(3)}" data-a="mult" data-v="3">Triple</button>
-      ${stops ? `<button class="mod stop" data-a="stop" ${canStop(st) ? '' : 'disabled'}>Fertig</button>` : ''}</div>
+      ${stops ? `<button class="mod stop" data-a="stop" ${canStop(st) ? '' : 'disabled'}>${ui.stopLabel ? ui.stopLabel(st) : 'Fertig'}</button>` : ''}</div>
     <div class="nums">${nums.map((n) => `<button class="key${tgt(n)}" data-a="dart" data-v="${n}">${n}</button>`).join('')}</div>
     <div class="bottom"><button class="key miss" data-a="dart" data-v="0">Daneben</button>
       <button class="key bull25${tgt(25)}" data-a="dart" data-v="25">25</button>
@@ -723,7 +723,7 @@ const A = {
   mult: (v) => { S.mult = S.mult === Number(v) ? 1 : Number(v); render(); },
   dart: (v) => throwDart(Number(v)),
   bull: () => throwDart(25, 2),
-  // „Fertig": Aufnahme vor dem dritten Dart beenden (Golf, Follow the Leader). Gespeichert als Stopp-Eintrag.
+  // „Fertig" bzw. „Passen": Aufnahme vor dem dritten Dart beenden (Golf, Follow the Leader). Gespeichert als Stopp-Eintrag.
   stop: () => {
     if (!S.game || !canStop(S.st)) return;
     if (!addEntry({ s: 0, m: 0, stop: true, t: Date.now() })) return;

@@ -476,6 +476,33 @@ ok('Follow the Leader (erster Treffer): erster Treffer legt fest und beendet die
   assert.equal(canStop(replay(game('follow', FL(), 2, '-'))), true); // darts501: Fertig nach dem festlegenden Dart
 });
 
+// Tablet-Test 0.8.0: Die Anzeige bot „passen“ an, eine Taste gab es nicht.
+ok('Follow the Leader: Setzer kann passen, wenn sein Ziel zurückkommt, beide Arten', () => {
+  for (const cfg of [FLF(), FL({ set: 'last' })]) {
+    // Anna legt T20 fest, Ben verfehlt (Leben weg), Anna ist wieder dran
+    const pre = cfg.set === 'first' ? 'T20  - - -' : 'T20 X  - - -';
+    let st = replay(game('follow', cfg, 2, pre));
+    assert.equal(st.current, 0); assert.equal(canStop(st), true, cfg.set);
+    st = replay(game('follow', cfg, 2, pre + '  X'));
+    assert.equal(st.current, 1); assert.deepEqual(st.leg.lives, [3, 2]); assert.deepEqual(st.leg.target, { s: 20, m: 3 });
+    assert.equal(st.turns.at(-1).darts.length, 0); assert.equal(st.turns.at(-1).stopped, true);
+    // Passen nach einem Fehlwurf geht auch
+    st = replay(game('follow', cfg, 2, pre + '  - X'));
+    assert.equal(st.current, 1); assert.deepEqual(st.leg.lives, [3, 2]);
+    // Ben muss danach weiter T20 treffen
+    st = replay(game('follow', cfg, 2, pre + '  X  - - -'));
+    assert.deepEqual(st.leg.lives, [3, 1]);
+  }
+  // Wer nicht Setzer ist, kann nicht passen, ein Stopp ohne Dart bleibt folgenlos
+  let st = replay(game('follow', FLF(), 2, 'T20'));
+  assert.equal(st.current, 1); assert.equal(canStop(st), false);
+  st = replay(game('follow', FLF(), 2, 'T20  X'));
+  assert.equal(st.current, 1); assert.equal(st.turns.length, 1);
+  // Golf: Stopp ohne Dart bleibt wie bisher folgenlos
+  st = replay(game('golf', { holes: 9, count: 'last' }, 1, 'X'));
+  assert.equal(st.turns.length, 0);
+});
+
 ok('Follow the Leader (erster Treffer): Ziel getroffen, nächster Treffer legt neu fest', () => {
   // Ben trifft T20 mit Dart 1, Dart 2 daneben, Dart 3 trifft D5: D5 ist das neue Ziel
   let st = replay(game('follow', FLF(), 2, 'T20  T20 - D5'));
@@ -630,6 +657,31 @@ ok('Mickey Mouse: der Reihe nach und mit Punkten als Option', () => {
   for (let i = 0; i < darts.length; i += 3) seq.push(darts.slice(i, i + 3).join(' '), '- - -');
   st = replay(game('mickey', MM(), 2, seq.join(' ')));
   assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+// Tablet-Test 0.8.0: Mit Punkten brachten Doppel- und Triple-Feld nie Punkte (value 0). Ab Regelversion 1 zählt
+// der Dartwert, und ein Dart punktet auf dem Feld, das ein Gegner noch offen hat.
+ok('Mickey Mouse mit Punkten: Doppel- und Triple-Feld punkten mit dem Dartwert (Regelversion 1)', () => {
+  // Anna schließt das Triple-Feld (T1 T2 T3), Ben wirft daneben. Danach T5 auf das geschlossene Triple-Feld.
+  const seq = 'T1 T2 T3  - - -  T5 - -';
+  let st = replay(game('mickey', MM({ points: true, rv: 1 }), 2, seq));
+  assert.equal(st.leg.marks[0].T, 3); assert.equal(st.leg.score[0], 15);
+  st = replay(game('mickey', MM({ points: true }), 2, seq)); // Spiele bis 0.8.0: unverändert ohne Punkte
+  assert.equal(st.leg.score[0], 0);
+  st = replay(game('mickey', MM({ points: true, rv: 1 }), 2, 'D1 D2 D3  - - -  D5'));
+  assert.equal(st.leg.score[0], 10);
+});
+
+ok('Mickey Mouse mit Punkten: Dart punktet dort, wo ein Gegner offen hat (Regelversion 1)', () => {
+  // Beide haben die 20 zu, Anna hat auch das Triple-Feld zu, Ben nicht. T20 punktet auf dem Triple-Feld.
+  const pre = 'T20 T1 T2  T20 - -  T3 - -  - - -  ';
+  let st = replay(game('mickey', MM({ points: true, rv: 1 }), 2, pre + 'T20'));
+  assert.equal(st.darts.at(-1).row, 'T'); assert.equal(st.leg.score[0], 60);
+  st = replay(game('mickey', MM({ points: true }), 2, pre + 'T20'));
+  assert.equal(st.darts.at(-1).row, '20'); assert.equal(st.leg.score[0], 0);
+  // Ohne Punkte bleibt alles wie bisher: die Zahl zuerst, dann das Feld
+  st = replay(game('mickey', MM({ rv: 1 }), 2, 'T20 T20'));
+  assert.equal(st.leg.marks[0]['20'], 3); assert.equal(st.leg.marks[0].T, 1);
 });
 
 // ---------- Shove Ha'penny ----------
@@ -818,6 +870,23 @@ ok('Fives: Genau das Ziel gewinnt, Überwerfen ist Bust, Erreichen reicht als Op
   assert.equal(st.finished, true); assert.equal(st.leg.score[0], 72);
 });
 
+// Wunsch aus dem Tablet-Test 0.8.0: Bust, sobald ein Dart klar über das Ziel bringt, nicht erst nach dem dritten.
+ok('Fives: Bust schon beim Dart, der über das Ziel bringt (Regelversion 1)', () => {
+  // Fall des Nutzers: 3 × T20 = 36, 3 × 20 = 12, Stand 48, braucht 3. T20 mit dem ersten Dart ist Bust.
+  let st = replay(game('fives', FV({ rv: 1 }), 2, 'T20 T20 T20  - - -  20 20 20  - - -  T20'));
+  assert.equal(st.leg.score[0], 48); assert.equal(st.turns.at(-1).bust, true); assert.equal(st.turns.at(-1).darts.length, 1);
+  assert.equal(st.current, 1); assert.equal(st.lastEvent.type, 'bust');
+  // Spiele bis 0.8.0: Bust erst mit dem dritten Dart
+  st = replay(game('fives', FV(), 2, 'T20 T20 T20  - - -  20 20 20  - - -  T20'));
+  assert.equal(st.turns.at(-1).darts.length, 3); assert.equal(st.current, 0);
+  // Genau auf die Grenze ist kein Bust: 48 + 15/5 = 51 mit dem dritten Dart
+  st = replay(game('fives', FV({ rv: 1 }), 2, 'T20 T20 T20  - - -  20 20 20  - - -  5 5 5'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  // Erreichen reicht: kein früher Bust
+  st = replay(game('fives', FV({ rv: 1, over: 'reach' }), 2, 'T20 T20 T20  - - -  20 20 20  - - -  T20'));
+  assert.equal(st.turns.at(-1).bust, false); assert.equal(st.current, 0);
+});
+
 ok('Fives: Double und Triple wie Single als Option, Bull bleibt 25/50', () => {
   const st = replay(game('fives', FV({ dt: 'single' }), 1, 'T20 D10 BULL'));
   assert.equal(st.leg.score[0], 16); // 20 + 10 + 50 = 80
@@ -888,6 +957,18 @@ ok('War: Drei Marks erobern, Marks sammeln sich über Runden', () => {
   assert.equal(st.leg.owner[19], 0); assert.equal(st.leg.prog[0][19], 0);
   st = replay(game('war', WR({ need: 1 }), 2, '15'));
   assert.equal(st.leg.owner[15], 0);
+});
+
+// Wunsch aus dem Tablet-Test 0.8.0: Auch bei „1 Treffer“ zählt Triple 3 und Double 2 Marks.
+ok('War „1 Treffer“: Stärke und Rückeroberung nach Ring (Regelversion 1)', () => {
+  let st = replay(game('war', WR({ need: 1, rv: 1 }), 2, 'T20'));
+  assert.equal(st.leg.owner[20], 0); assert.equal(st.leg.strength[20], 3);
+  st = replay(game('war', WR({ need: 1, rv: 1 }), 2, 'T20 - -  20 20 20'));
+  assert.equal(st.leg.owner[20], 0); assert.equal(st.leg.locked[20], true); // 3 Singles schlagen Triple nicht
+  st = replay(game('war', WR({ need: 1, rv: 1 }), 2, 'D20 - -  T20'));
+  assert.equal(st.leg.owner[20], 1); assert.equal(st.leg.strength[20], 3);
+  st = replay(game('war', WR({ need: 1 }), 2, 'T20 - -  20 20')); // Spiele bis 0.8.0: jeder Treffer eins
+  assert.equal(st.leg.owner[20], 1);
 });
 
 ok('War: Eine Runde zum Zurückerobern, mehr Marks als der Halter, danach gesichert', () => {
@@ -986,9 +1067,9 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 8);
+  assert.equal(SCHEMA, 9);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
-  await assert.rejects(importAll({ ...base, schema: 8, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
+  await assert.rejects(importAll({ ...base, schema: SCHEMA, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
 });
 
 // Ein Lösch-Vermerk hat keinen Modus. Er darf nicht als „unbekannter Modus" gelten, sonst lehnte der Import jede

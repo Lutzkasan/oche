@@ -6,6 +6,7 @@
 //   targets(st)       hervorgehobene Tasten [[Zahl, Farbe]]            mult(st) Doppel/Triple-Taste markieren (2/3)
 //   turnSum(turn, st) Summenfeld der Runde (3 Darts)         homeScore(st, p) Stand in „Laufende Spiele"
 //   col               [Kopf, Wert(matchLine)] im Match-Overlay          overlaySub(st, ev), bar(st)  optional
+//   stopLabel(st)     Beschriftung der Taste „Fertig" (optional, Follow the Leader: „Passen")
 //   stats(s, h)       Abschnitt in der Statistik (s = Zähler aus stats.js, h = Bausteine aus app.js)
 import { matchLine, dartLabel } from './engine.js';
 import { suggestCheckout } from './checkout.js';
@@ -20,6 +21,7 @@ import { jdcVisit, jdcDartTarget, jdcGrade } from './rules/jdc.js';
 import { GALLERY_COUNT, galleryOut } from './rules/gallery.js';
 import { INNINGS, baseballTarget } from './rules/baseball.js';
 import { STEEPLE } from './rules/steeples.js';
+import { canPass } from './rules/follow.js';
 import { warFields, warOpen, warCount } from './rules/war.js';
 import { scramNums } from './rules/scram.js';
 import {
@@ -241,7 +243,8 @@ function boardFollow(st) {
     const out = leg.lives[p] <= 0;
     let note = out ? 'Raus' : '';
     if (active && !out) {
-      note = !hunting(st) ? 'Dein letzter Dart legt das neue Ziel fest' : leg.setter === p ? 'Dein Ziel kam zurück: treffen oder passen' : `Triff ${dartLabel(leg.target)}`;
+      note = !hunting(st) ? (st.cfg.set === 'first' ? 'Dein nächster Treffer legt das neue Ziel fest' : 'Dein letzter Dart legt das neue Ziel fest')
+        : leg.setter === p ? 'Dein Ziel kam zurück: treffen oder „Passen“' : `Triff ${dartLabel(leg.target)}`;
     }
     return {
       cls: out ? 'out' : '',
@@ -575,7 +578,9 @@ Object.assign(MODES, {
     board: boardFollow,
     targets: (st) => (hunting(st) ? one(st, st.leg.target.s) : []),
     mult: (st) => (hunting(st) && st.leg.target.m > 1 ? st.leg.target.m : 0),
-    turnSum: (t) => (t.infos.some((x) => x.hit) ? '✓' : t.infos[0]?.mode === 'set' ? 'Ziel' : '–'),
+    turnSum: (t) => (t.infos.some((x) => x.hit) ? '✓' : t.infos[0]?.mode === 'set' ? 'Ziel' : t.stopped ? 'Pass' : '–'),
+    // Passen ist nur beim eigenen Ziel möglich. Bei „erster Treffer“ gibt es nichts anderes, dort heißt die Taste immer so.
+    stopLabel: (st) => (st.cfg.set === 'first' || (st.turn && canPass(st.leg, st.current, st.turn)) ? 'Passen' : 'Fertig'),
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? st.leg.lives[p] + ' ♥' : 'raus'),
     col: ['Getroffen', (ml) => pct(ml.hitRate)],
     stats: (f, h) => `<div class="stats">
