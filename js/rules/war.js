@@ -17,6 +17,14 @@
 //     Das Leg endet, wenn alle Felder sicher sind.
 //   ANNAHME Gleichstand: Stechen auf Bull, eine Runde je Gleichplatziertem, mehr Marks (25 = 1, Bull = 2)
 //     gewinnt, sonst weiter. Die Quelle regelt das nicht.
+// Spielart (cfg.style, ab 0.9.0). 'hold' = Erobern und Halten wie oben, gilt auch, wenn style fehlt (bis 0.8.1).
+// 'rounds' (Regel des Nutzers vom 20.11.2026): Jeder wirft cfg.rounds Runden. Auf jedem Feld sammelt jeder Spieler
+//   über das ganze Spiel Treffer. cfg.count 'marks' zählt S1, D2, T3, 25 = 1, Bull = 2, 'hits' jeden Treffer eins.
+//   Das Feld gehört dem, der darauf am meisten hat. Wer gleichzieht, muss überbieten, der Halter behält es.
+//   Nach der letzten Runde gewinnt, wer die meisten Felder hält. Gleichstand: Extra-Runden mit je drei Darts, nur
+//   die Spieler mit gleich vielen Feldern an der Spitze werfen, bis nach einer Runde einer vorn liegt (rounds.js).
+//   ANNAHME (nicht gefragt): In den Extra-Runden zählen Treffer weiter auf die Felder wie im Spiel.
+import { roundsLeg, roundActive, settle } from './rounds.js';
 
 export const WAR_SETS = { cricket: [20, 19, 18, 17, 16, 15, 25], all: [...Array.from({ length: 20 }, (_, i) => i + 1), 25] };
 export const warFields = (cfg) => WAR_SETS[cfg.set] || WAR_SETS.cricket;
@@ -25,16 +33,20 @@ const unit = (d, cfg) => (cfg.need === 1 && !(cfg.rv >= 1) ? 1 : d.m);
 // Kann p dieses Feld gerade erobern oder zurückerobern? Für Brett und Tastenfeld.
 export const warOpen = (leg, f, p) => leg.owner[f] < 0 || (!leg.locked[f] && leg.owner[f] !== p && leg.window[f].includes(p));
 export const warCount = (leg, p) => Object.values(leg.owner).filter((o) => o === p).length;
+export const warRounds = (cfg) => cfg.style === 'rounds';
+const COUNT_LABEL = { marks: 'Marks', hits: 'Treffer' };
 
 export const war = {
   id: 'war',
   title: () => 'War',
-  subtitle: (cfg) => `${cfg.set === 'all' ? '1–20 + Bull' : '15–20 + Bull'} · ${cfg.need === 1 ? '1 Treffer' : '3 Marks'}`,
-  defaults: { set: 'cricket', need: 3 },
+  subtitle: (cfg) => `${cfg.set === 'all' ? '1–20 + Bull' : '15–20 + Bull'} · ${warRounds(cfg)
+    ? `${cfg.rounds} Runden · zählt ${COUNT_LABEL[cfg.count] || 'Marks'}` : cfg.need === 1 ? '1 Treffer' : '3 Marks'}`,
+  defaults: { set: 'cricket', need: 3, style: 'hold' },
   minPlayers: 2,
 
   initLeg(cfg, n) {
     const fields = warFields(cfg), by = (v) => Object.fromEntries(fields.map((f) => [f, typeof v === 'function' ? v() : v]));
+    if (warRounds(cfg)) return { ...roundsLeg(n, cfg.rounds), owner: by(-1), prog: Array.from({ length: n }, () => by(0)) };
     return {
       owner: by(-1), strength: by(0), locked: by(false), window: by(() => []),
       prog: Array.from({ length: n }, () => by(0)),   // Marks je Spieler auf noch freien Feldern
@@ -45,10 +57,11 @@ export const war = {
   },
 
   score: (leg, p) => warCount(leg, p),
-  active: (leg, p) => !leg.tb || (leg.tb.pool.includes(p) && leg.tb.rounds[p] < leg.tb.stage),
+  active: (leg, p) => ('stage' in leg ? roundActive(leg, p) : !leg.tb || (leg.tb.pool.includes(p) && leg.tb.rounds[p] < leg.tb.stage)),
 
   applyDart(leg, p, d, cfg, dartIdx) {
     const info = { pts: 0, marks: 0, bust: false, won: false, hit: false };
+    if (warRounds(cfg)) return roundsDart(leg, p, d, cfg, info);
     if (dartIdx === 0) for (const f of Object.keys(leg.turnMarks)) leg.turnMarks[f] = 0;
     if (leg.tb) {
       if (d.s === 25) { leg.tb.marks[p] += d.m; info.hit = true; info.marks = d.m; }
@@ -97,7 +110,11 @@ export const war = {
     return info;
   },
 
-  turnEnd(leg, p) {
+  turnEnd(leg, p, cfg) {
+    if (warRounds(cfg)) {
+      leg.rounds[p]++;
+      return settle(leg, (q) => [warCount(leg, q)]);
+    }
     if (leg.tb) return tiebreakEnd(leg, p);
     for (const f of Object.keys(leg.owner)) {
       if (leg.capturedIn[f] === p) leg.capturedIn[f] = -1; // Eroberungsrunde vorbei, Stärke steht fest
@@ -124,6 +141,23 @@ export const war = {
     };
   },
 };
+
+// Spielart „Runden“: Treffer sammeln sich je Spieler und Feld. Halter ist, wer am meisten hat, Gleichziehen reicht nicht.
+function roundsDart(leg, p, d, cfg, info) {
+  const f = d.s;
+  if (!(f in leg.owner)) return info;
+  const u = cfg.count === 'hits' ? 1 : d.m;
+  leg.prog[p][f] += u;
+  info.hit = true;
+  info.marks = u;
+  const o = leg.owner[f];
+  if (o !== p && leg.prog[p][f] > (o < 0 ? 0 : leg.prog[o][f])) {
+    leg.owner[f] = p;
+    info.capture = f;
+    if (o >= 0) { info.recapture = true; info.event = 'recapture'; } else info.event = 'capture';
+  }
+  return info;
+}
 
 function tiebreakEnd(leg, p) {
   const tb = leg.tb;

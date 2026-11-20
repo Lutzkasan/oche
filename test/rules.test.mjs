@@ -1067,7 +1067,7 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 9);
+  assert.equal(SCHEMA, 10);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
   await assert.rejects(importAll({ ...base, schema: SCHEMA, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
 });
@@ -1406,6 +1406,155 @@ ok('Sicherung: nicht lesbare Einträge werden übersprungen und gezählt, der Re
   assert.deepEqual(r.games.map((g) => g.id), ['g1', 'g4']);
   assert.equal(r.skipped, 5);
   assert.equal(sanitize({ players: [PL()], games: [GM()] }).skipped, 0);
+});
+
+// ---------- 0.9.0 ----------
+const S2 = (txt, call = {}) => D(txt).map((d, i) => (call[i] ? { ...d, call: call[i] } : d));
+const gameD = (mode, config, players, darts) => ({ mode, config: { legs: 1, sets: 1, ...config }, playerIds: Array(players).fill(0).map((_, i) => 'p' + i), darts });
+
+ok('War „Runden“: meiste Treffer hält das Feld, Gleichziehen reicht nicht, Extra-Runde bei Gleichstand', () => {
+  const cfg = { set: 'cricket', style: 'rounds', rounds: 2, count: 'marks', rv: 1 };
+  let st = replay(game('war', cfg, 2, 'T20 - -  D20 20 -'));
+  assert.equal(st.leg.owner[20], 0, 'Ben zieht mit 3 gleich, Anna behält die 20');
+  st = replay(game('war', cfg, 2, 'T20 - -  D20 20 -  19 - -  20 - -'));
+  assert.equal(st.leg.owner[20], 1); assert.equal(st.leg.owner[19], 0);
+  assert.deepEqual(st.leg.contenders, [0, 1], 'Gleichstand 1:1 nach zwei Runden');
+  assert.equal(st.finished, false); assert.equal(st.current, 0);
+  st = replay(game('war', cfg, 2, 'T20 - -  D20 20 -  19 - -  20 - -  18 - -  - - -'));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  // Treffer statt Marks: D20 zählt eins
+  st = replay(game('war', { ...cfg, count: 'hits' }, 2, 'T20 - -  D20 20 -'));
+  assert.equal(st.leg.prog[0][20], 1); assert.equal(st.leg.owner[20], 1, '2 Treffer schlagen 1 Treffer');
+  // Bisherige Spiele ohne style bleiben Erobern und Halten
+  st = replay(game('war', { set: 'cricket', need: 3, rv: 1 }, 2, 'T20'));
+  assert.equal(st.leg.strength[20], 3); assert.equal('stage' in st.leg, false);
+});
+
+ok('Follow the Leader ohne Passen: eigenes Ziel verfehlt kostet ein Leben, Ziel bleibt, keine Taste', () => {
+  for (const set of ['first', 'last']) {
+    const cfg = { lives: 3, set, pass: false };
+    const open = set === 'first' ? 'T20' : '1 1 T20';
+    let st = replay(game('follow', cfg, 3, `${open}  - - -  - - -`));
+    assert.equal(st.current, 0); assert.equal(canStop(st), false, set);
+    st = replay(game('follow', cfg, 3, `${open}  - - -  - - -  - - -`));
+    assert.deepEqual(st.leg.lives, [2, 2, 2], set);
+    assert.deepEqual(st.leg.target, { s: 20, m: 3 }); assert.equal(st.leg.setter, 0);
+    assert.equal(matchLine(st, 0).tries, 1, 'Pflichtversuch zählt');
+    // Mit Passen wie bisher
+    st = replay(game('follow', { ...cfg, pass: true }, 3, `${open}  - - -  - - -`));
+    assert.equal(canStop(st), true, set);
+  }
+  assert.equal(RULES.follow.stops({ set: 'first', pass: false }), false);
+  assert.equal(RULES.follow.stops({ set: 'first' }), true);
+});
+
+ok('Count-Up: acht Runden, jeder Dart zählt, Gleichstand geht ins Stechen', () => {
+  let st = replay(game('countup', {}, 1, Array(8).fill('T20 T20 T20').join(' ')));
+  assert.equal(st.finished, true); assert.equal(st.legResults[0].scores[0], 1440);
+  st = replay(game('countup', {}, 2, Array(16).fill('20 25 BULL').join(' ')));
+  assert.equal(st.finished, false); assert.deepEqual(st.leg.contenders, [0, 1]);
+  st = replay(game('countup', {}, 2, Array(16).fill('20 25 BULL').join(' ') + ' 1 - -  2 - -'));
+  assert.equal(st.winner, 1);
+});
+
+ok('High / Low: Vorlage mit zwei Darts, gleich reicht nicht, Low-Werte, Varianten', () => {
+  const hi = { dir: 'high', lives: 3, plusOne: false, ban180: false };
+  let st = replay(game('highlow', hi, 3, '20 20  20 20 -  20 20 1'));
+  assert.equal(st.turns[0].darts.length, 2);
+  assert.deepEqual(st.leg.lives, [3, 2, 3]); assert.equal(st.leg.bar, 41);
+  st = replay(game('highlow', { ...hi, plusOne: true }, 3, '20 20  20 20 -  20 20 1  20 20 2  20 20 3'));
+  assert.deepEqual(st.leg.lives, [3, 3, 3], 'Ben holt mit 43 gegen 42 sein Leben zurück');
+  st = replay(game('highlow', { ...hi, ban180: true }, 3, 'T20 T20  T20 T20 T20'));
+  assert.equal(st.leg.lives[1], 2, '180 kostet ein Leben');
+  st = replay(game('highlow', { ...hi, ban180: true }, 3, 'T20 T20  T20 T20 T19  T20 T20 T20'));
+  assert.equal(st.leg.lives[2], 3, 'gegen 177 gewinnt 180');
+  const lo = { dir: 'low', lives: 3, plusOne: false };
+  st = replay(game('highlow', lo, 3, 'BULL 25  BULL BULL BULL  - - -'));
+  assert.equal(st.leg.bar, 75); assert.deepEqual(st.leg.lives, [3, 3, 2]);
+  assert.equal(st.turns[1].points, -150);
+  // Letzter mit Leben gewinnt
+  st = replay(game('highlow', hi, 2, '20 20' + '  1 - -  T20 T20 T20'.repeat(3)));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+});
+
+ok('Snooker 15 Rote: Break über mehrere Runden, Rote eingelocht, Fouls ohne Ansage', () => {
+  const cfg = { variant: 'd501', call: false };
+  let st = replay(gameD('snooker', cfg, 2, S2('1 16 2  20 -')));
+  assert.equal(st.turns[0].p, 0); assert.equal(st.turns[1].p, 0, 'Break läuft in der zweiten Runde weiter');
+  assert.equal(st.leg.score[0], 10); assert.equal(st.leg.best[0], 10); assert.equal(st.current, 1);
+  assert.equal(st.leg.reds[1], false); assert.equal(st.leg.need, 'red');
+  st = replay(gameD('snooker', cfg, 2, S2('1 16 2  20 -  1')));
+  assert.equal(st.leg.score[1], 0); assert.equal(st.current, 0, 'eingelochte Rote beendet das Break ohne Strafe');
+  st = replay(gameD('snooker', cfg, 2, S2('1 16 2  20 -  1  16')));
+  assert.equal(st.leg.score[1], 4, 'Farbe statt Rot: 4');
+  st = replay(gameD('snooker', cfg, 2, S2('1 16 2  20 -  1  20')));
+  assert.equal(st.leg.score[1], 6, 'Rosa statt Rot: 6');
+  st = replay(gameD('snooker', cfg, 2, S2('3 1')));
+  assert.equal(st.leg.score[1], 0); assert.equal(st.current, 1, 'Rot statt Farbe: Break endet ohne Strafe');
+  // Alles eingelocht in einem Break: 15 Rote mit Rosa, dann Gelb bis Schwarz
+  const all = Array.from({ length: 15 }, (_, i) => `${i + 1} 20`).join(' ') + ' 16 17 18 19 20 25';
+  st = replay(gameD('snooker', cfg, 2, S2(all)));
+  assert.equal(st.finished, true); assert.equal(st.winner, 0);
+  assert.equal(st.legResults[0].scores[0], 132); assert.equal(matchLine(st, 0).best, 132);
+  // Farbfolge ohne Ansage: falsche Farbe beendet ohne Strafe
+  const reds = Array.from({ length: 15 }, (_, i) => `${i + 1} 20`).join(' ');
+  st = replay(gameD('snooker', cfg, 2, S2(reds + ' 17')));
+  assert.equal(st.leg.phase, 'colours'); assert.equal(st.leg.score[1], 0); assert.equal(st.current, 1);
+});
+
+ok('Snooker mit Ansage: falsche Farbe ist Foul mit dem höheren Wert, Farbfolge, Schwarz wieder aufgesetzt', () => {
+  const cfg = { variant: 'd501', call: true };
+  let st = replay(gameD('snooker', cfg, 2, S2('1 18', { 1: 19 })));
+  assert.equal(st.leg.score[1], 5, 'Blau angesagt, Braun getroffen: 5');
+  st = replay(gameD('snooker', cfg, 2, S2('1 16', { 1: 17 })));
+  assert.equal(st.leg.score[1], 4, 'Grün angesagt, Gelb getroffen: 4');
+  st = replay(gameD('snooker', cfg, 2, S2('1 20', { 1: 20 })));
+  assert.equal(st.leg.score[0], 7); assert.equal(st.current, 0);
+  const reds = Array.from({ length: 15 }, (_, i) => `${i + 1} 20`).join(' ');
+  const calls = Object.fromEntries(Array.from({ length: 15 }, (_, i) => [2 * i + 1, 20]));
+  st = replay(gameD('snooker', cfg, 2, S2(reds + ' 17', calls)));
+  assert.equal(st.leg.score[1], 4, 'Gelb ist dran, Grün getroffen: Foul');
+  // Gleichstand nach Schwarz: nur die Gleichen werfen aufs Bull
+  const rule = RULES.snooker, leg = rule.initLeg(cfg, 2);
+  Object.keys(leg.reds).forEach((r) => { leg.reds[r] = false; });
+  Object.assign(leg, { phase: 'colours', on: 5, score: [10, 3] });
+  rule.applyDart(leg, 1, { s: 25, m: 1 }, cfg, 0);
+  assert.equal(leg.score[1], 10);
+  assert.deepEqual(rule.turnEnd(leg, 1, cfg, {}), { event: 'tiebreak' });
+  assert.equal(leg.phase, 'respot');
+  assert.equal(rule.applyDart(leg, 0, { s: 25, m: 2 }, cfg, 0).won, true);
+});
+
+ok('Snooker kurz: Rote bleiben, Fehlwurf setzt auf Rot zurück, feste Runden', () => {
+  const cfg = { variant: 'tm', rounds: 1 };
+  let st = replay(game('snooker', cfg, 2, '1 10 1  16 1 25'));
+  assert.equal(st.finished, true); assert.deepEqual(st.legResults[0].scores, [4, 9]); assert.equal(st.winner, 1);
+  st = replay(game('snooker', cfg, 1, '10 1 11'));
+  assert.equal(st.legResults[0].scores[0], 4, 'Farbe statt Rot zählt nicht, danach Rot und Grün');
+  st = replay(game('snooker', { variant: 'tm', rounds: 3 }, 1, '1 15 1  1 25 -'));
+  assert.equal(st.leg.score[0], 18); assert.equal(st.leg.best[0], 9);
+});
+
+ok('Statistik: Count-Up, High / Low, Snooker', () => {
+  const games = [
+    done(game('countup', {}, 1, Array(8).fill('T20 20 -').join(' '))),
+    done(game('highlow', { dir: 'high', lives: 3 }, 2, '20 20' + '  1 - -  T20 T20 T20'.repeat(3))),
+    done(gameD('snooker', { variant: 'd501', call: false }, 2, S2(Array.from({ length: 15 }, (_, i) => `${i + 1} 20`).join(' ') + ' 16 17 18 19 20 25'))),
+  ].map((g, i) => ({ ...g, id: 'g' + i }));
+  const r = playerStats('p0', games);
+  assert.equal(r.countup.bestScore, 640); assert.equal(r.countup.ppr, 80); assert.equal(r.countup.solo, 1);
+  assert.equal(r.highlow.tries, 2); assert.equal(r.highlow.ok, 2); assert.equal(r.highlow.won, 1, 'Anna gewinnt, Ben verliert drei Leben');
+  assert.equal(r.snooker.bestBreak, 132); assert.equal(r.snooker.bestScore, 132); assert.equal(r.snooker.fouls, 0);
+  const r1 = playerStats('p1', games);
+  assert.equal(r1.highlow.tries, 3); assert.equal(r1.highlow.ok, 0); assert.equal(r1.highlow.lost, 3); assert.equal(r1.highlow.matches - r1.highlow.won, 1);
+});
+
+ok('Prüfung: Ansage im Dart-Eintrag nur mit gültigem Feld', () => {
+  const g = (call) => GM({ mode: 'snooker', config: { variant: 'd501', call: true, legs: 1, sets: 1 }, darts: [{ s: 1, m: 1, t: 1 }, { s: 20, m: 1, t: 2, call }] });
+  assert.equal(validGame(g(20)), true);
+  assert.equal(validGame(g(25)), true);
+  assert.equal(validGame(g(30)), false);
+  assert.equal(validGame(g('<b>')), false);
 });
 
 await Promise.all(pending);

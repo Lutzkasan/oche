@@ -1,12 +1,16 @@
 // Alles, was die Oberfläche je Modus braucht, an einer Stelle. Spielregeln liegen in js/rules/, Erklärtexte in help.js.
 //   label, group      Name und Gruppe im Modusmenü (classic, party, training)
-//   opts              Setup-Optionen [Schlüssel, Beschriftung, [[Wert, Text], …], Vorgabe]. Ohne Vorgabe gilt der erste Wert.
+//   opts              Setup-Optionen [Schlüssel, Beschriftung, [[Wert, Text], …], Vorgabe, wann(setup)]. Ohne Vorgabe gilt
+//                     der erste Wert. wann (optional): Das Setup zeigt die Option nur, wenn wann(setup) wahr ist.
+//                     config(setup) lässt eine verborgene Option weg. Die Regelerklärung zeigt immer alle.
 //   config(setup)     Regelparameter                  prepare(cfg, n)  Vorbereitung je Match (optional). Zufall je Leg: draw in der Regel
 //   board(st)         Spielbrett                      nums(st)         Zahlentasten
 //   targets(st)       hervorgehobene Tasten [[Zahl, Farbe]]            mult(st) Doppel/Triple-Taste markieren (2/3)
 //   turnSum(turn, st) Summenfeld der Runde (3 Darts)         homeScore(st, p) Stand in „Laufende Spiele"
 //   col               [Kopf, Wert(matchLine)] im Match-Overlay          overlaySub(st, ev), bar(st)  optional
 //   stopLabel(st)     Beschriftung der Taste „Fertig" (optional, Follow the Leader: „Passen")
+//   entry(st, s, m)   Zusatz zum Dart-Eintrag (optional, Snooker: angesagte Farbe). Liefert ein Objekt zum
+//                     Anhängen oder einen Text: Dann zählt der Dart nicht, die App zeigt den Text als Meldung.
 //   stats(s, h)       Abschnitt in der Statistik (s = Zähler aus stats.js, h = Bausteine aus app.js)
 import { matchLine, dartLabel } from './engine.js';
 import { suggestCheckout } from './checkout.js';
@@ -21,9 +25,11 @@ import { jdcVisit, jdcDartTarget, jdcGrade } from './rules/jdc.js';
 import { GALLERY_COUNT, galleryOut } from './rules/gallery.js';
 import { INNINGS, baseballTarget } from './rules/baseball.js';
 import { STEEPLE } from './rules/steeples.js';
-import { canPass } from './rules/follow.js';
-import { warFields, warOpen, warCount } from './rules/war.js';
+import { canPass, passAllowed } from './rules/follow.js';
+import { warFields, warOpen, warCount, warRounds } from './rules/war.js';
 import { scramNums } from './rules/scram.js';
+import { COUNTUP_ROUNDS } from './rules/countup.js';
+import { snTable, snIsRed, snValue, snColourName, snOn, snNeedsCall } from './rules/snooker.js';
 import {
   S, MODES, esc, num, pct, tLabel, signed, sumBy, ALL_NUMS, player, pcolor, pname,
   MARK_SVG, turnSlots, legSetLine, playerGrid, legTurns, roundTrack, posTrack, pips, tiebreakNote, checkoutHint,
@@ -244,7 +250,8 @@ function boardFollow(st) {
     let note = out ? 'Raus' : '';
     if (active && !out) {
       note = !hunting(st) ? (st.cfg.set === 'first' ? 'Dein nächster Treffer legt das neue Ziel fest' : 'Dein letzter Dart legt das neue Ziel fest')
-        : leg.setter === p ? 'Dein Ziel kam zurück: treffen oder „Passen“' : `Triff ${dartLabel(leg.target)}`;
+        : leg.setter === p ? (passAllowed(st.cfg) ? 'Dein Ziel kam zurück: treffen oder „Passen“' : `Dein Ziel kam zurück: Triff ${dartLabel(leg.target)}, sonst −1 Leben`)
+          : `Triff ${dartLabel(leg.target)}`;
     }
     return {
       cls: out ? 'out' : '',
@@ -386,9 +393,17 @@ function boardSteeples(st) {
   });
 }
 
+// War „Runden“: je Feld der Halter und die Treffer jedes Spielers darauf
+function warRoundsCell(st, f) {
+  const leg = st.leg, o = leg.owner[f];
+  const counts = S.game.playerIds.map((_, q) => (leg.prog[q][f] ? `<i style="--pc:${pcolor(q)}">${leg.prog[q][f]}</i>` : '')).join('');
+  return `<div class="w-cell ${o >= 0 ? 'own' : ''}" ${o >= 0 ? `style="--pc:${pcolor(o)}"` : ''}><b>${f === 25 ? 'Bull' : f}</b>${o >= 0 ? `<em>${esc(pname(o))}</em>` : ''}${counts ? `<small>${counts}</small>` : ''}</div>`;
+}
+
 // War: Felder mit Halter, Stärke und Stand der Eroberung. Gesichert ist ein Feld, wenn niemand mehr zurückerobern darf.
 function boardWar(st) {
   const leg = st.leg, cfg = st.cfg, fields = warFields(cfg);
+  if (warRounds(cfg)) return boardWarRounds(st, fields);
   const heads = S.game.playerIds.map((id, p) => {
     const pl = player(id), active = st.current === p && !st.finished;
     return `<span class="c-player ${active ? 'active' : ''}" style="--pc:${pl.color}"><b>${esc(pl.name)}</b><em>${warCount(leg, p)}</em><small>${legSetLine(st, p) || 'Felder'}</small></span>`;
@@ -405,6 +420,17 @@ function boardWar(st) {
     ${st.turn ? `<div class="c-turn" style="--pc:${pcolor(st.current)}"><span>${esc(pname(st.current))}</span>${turnSlots(st)}</div>` : ''}</div>`;
 }
 
+function boardWarRounds(st, fields) {
+  const leg = st.leg;
+  const heads = S.game.playerIds.map((id, p) => {
+    const pl = player(id), active = st.current === p && !st.finished, out = leg.contenders && !leg.contenders.includes(p);
+    return `<span class="c-player ${active ? 'active' : ''} ${out ? 'out' : ''}" style="--pc:${pl.color}"><b>${esc(pl.name)}</b><em>${warCount(leg, p)}</em><small>${legSetLine(st, p) || `Runde ${Math.min(leg.rounds[p] + 1, leg.stage)}/${leg.stage}`}</small></span>`;
+  }).join('');
+  return `<div class="war"><div class="tt-heads" style="--n:${st.n}">${heads}</div>
+    <div class="w-grid" style="--cols:${fields.length > 7 ? 7 : 4}">${fields.map((f) => warRoundsCell(st, f)).join('')}</div>
+    ${st.turn ? `<div class="c-turn" style="--pc:${pcolor(st.current)}"><span>${esc(pname(st.current))}</span>${turnSlots(st)}</div>` : ''}</div>`;
+}
+
 // Scram: Zahlenleiste (geschlossen durchgestrichen), Rollen im Kartenkopf
 function boardScram(st) {
   const leg = st.leg, nums = scramNums(st.cfg);
@@ -417,6 +443,76 @@ function boardScram(st) {
       body: `<div class="p-rem">${leg.score[p]}<span class="p-unit">Punkte</span></div>
       <div class="p-meta"><span>Stopper-Darts <b>${matchLine(st, p).stopDarts}</b></span></div>`,
     }))}</div>`;
+}
+
+// Count-Up: Summe und Leiste über die acht Runden
+function boardCountup(st) {
+  const labels = Array.from({ length: COUNTUP_ROUNDS }, (_, i) => i + 1);
+  return playerGrid(st, (p) => {
+    const leg = st.leg, ml = matchLine(st, p);
+    return {
+      cls: leg.contenders && !leg.contenders.includes(p) ? 'out' : '',
+      body: `<div class="p-rem">${leg.score[p]}</div>
+      ${roundTrack(st, p, labels, (t) => t && t.points > 0)}
+      <div class="p-meta"><span>Ø/Runde <b>${num(ml.ppr)}</b></span><span>Darts <b>${st.legDarts[p]}</b></span></div>
+      ${tiebreakNote(st, p)}`,
+    };
+  });
+}
+
+// High / Low: letzte Runde, Leben, Quote der geschafften Vorgaben
+function boardHighlow(st) {
+  const leg = st.leg;
+  return playerGrid(st, (p) => {
+    const out = leg.lives[p] <= 0, last = legTurns(st, p).at(-1);
+    return {
+      cls: out ? 'out' : '',
+      body: `<div class="p-rem">${last ? last.points : '–'}<span class="p-unit">zuletzt</span></div>
+      ${pips(st.cfg.lives, leg.lives[p])}
+      <div class="p-meta"><span>Geschafft <b>${pct(matchLine(st, p).rate)}</b></span><span>Darts <b>${st.legDarts[p]}</b></span></div>
+      ${out ? '<div class="p-note">Raus</div>' : ''}`,
+    };
+  });
+}
+const highlowBar = (st) => {
+  if (!st.turn) return '';
+  if (st.leg.bar === null) return 'Vorlage <b>2 Darts</b>';
+  return `${st.cfg.dir === 'low' ? 'Unterbieten' : 'Übertreffen'} <b>${st.leg.bar}</b>`;
+};
+
+// Snooker: Tisch (Rote, Farben), was dran ist, Ansage, Spielerkarten mit Punkten und Break
+const snLabel = (cfg, s) => (s === 'red' ? 'Rot' : s === 'colour' ? 'Farbe' : `${snColourName(cfg, s)} (${s === 25 ? 'Bull' : s})`);
+function boardSnooker(st) {
+  const leg = st.leg, cfg = st.cfg, t = snTable(cfg), tm = cfg.variant === 'tm';
+  const on = snOn(leg);
+  const reds = t.reds.map((r) => `<i class="red ${!tm && !leg.reds[r] ? 'closed' : ''}">${r}</i>`).join('');
+  const cols = t.order.map((c, i) => {
+    const gone = !tm && leg.phase === 'colours' && i < leg.on;
+    return `<i class="col c${i} ${gone ? 'closed' : ''} ${on === c ? 'on' : ''}" title="${snColourName(cfg, c)}">${c === 25 ? 'B' : c}<small>${t.values[c]}</small></i>`;
+  }).join('');
+  const call = st.turn && snNeedsCall(leg, cfg)
+    ? `<div class="sn-call"><span>Ansage</span>${t.order.map((c, i) => `<button class="col c${i} ${S.call === c ? 'on' : ''}" data-a="snCall" data-v="${c}">${snColourName(cfg, c)}</button>`).join('')}</div>` : '';
+  const head = leg.phase === 'respot' ? 'Gleichstand: Schwarz wieder aufgesetzt, Bull trifft und gewinnt'
+    : `Dran: <b>${snLabel(cfg, on)}</b>${!tm && leg.brk ? ` · Break ${leg.brk}` : ''}`;
+  return `<div class="snooker"><div class="sn-table"><div class="sn-reds">${reds}</div><div class="sn-cols">${cols}</div></div>
+    <div class="sc-head">${head}</div>${call}
+    ${playerGrid(st, (p) => {
+      const ml = matchLine(st, p);
+      const out = (leg.contenders && !leg.contenders.includes(p)) || (leg.phase === 'respot' && !leg.pool.includes(p));
+      return {
+        cls: out ? 'out' : '',
+        body: `<div class="p-rem">${leg.score[p]}<span class="p-unit">Punkte</span></div>
+        <div class="p-meta"><span>Höchstes Break <b>${leg.best[p]}</b></span>${tm ? `<span>Runde <b>${Math.min(leg.rounds[p] + 1, leg.stage)}/${leg.stage}</b></span>` : `<span>Fouls <b>${ml.fouls}</b></span>`}</div>
+        ${tm ? tiebreakNote(st, p) : ''}`,
+      };
+    })}</div>`;
+}
+function snTargets(st) {
+  if (!st.turn) return [];
+  const leg = st.leg, cfg = st.cfg, t = snTable(cfg), c = pcolor(st.current), on = snOn(leg);
+  if (on === 'red') return t.reds.filter((r) => cfg.variant === 'tm' || leg.reds[r]).map((r) => [r, c]);
+  if (on === 'colour') return (S.call && snNeedsCall(leg, cfg) ? [S.call] : t.order).map((x) => [x, c]);
+  return [[on, c]];
 }
 
 // ---------- Leisten über dem Brett ----------
@@ -467,6 +563,7 @@ Object.assign(MODES, {
       ${h.tile('Höchstes Finish', x.highOut || '–')}
       ${h.tile('Bestes Leg', x.bestLeg ? x.bestLeg + ' Darts' : '–')}
       ${h.matchTiles(x)}
+      ${h.tile('Höchste Runde', x.high || '–')}
       ${h.tile('180 · 140+ · 100+', `${x.t180} · ${x.t140} · ${x.t100}`)}
     </div>
     ${h.trend(x.history, '3-Dart-Ø', 1)}
@@ -573,14 +670,15 @@ Object.assign(MODES, {
     opts: [
       ['flSet', 'Ziel festlegen', [['first', 'Erster Treffer'], ['last', 'Letzter Dart (darts501)']]],
       ['flLives', 'Leben', [[3, '3'], [5, '5']]],
+      ['flPass', 'Eigenes Ziel kommt zurück', [[1, 'Passen erlaubt'], [0, 'Muss werfen']]],
     ],
-    config: (s) => ({ lives: s.flLives, set: s.flSet }),
+    config: (s) => ({ lives: s.flLives, set: s.flSet, pass: Boolean(s.flPass) }),
     board: boardFollow,
     targets: (st) => (hunting(st) ? one(st, st.leg.target.s) : []),
     mult: (st) => (hunting(st) && st.leg.target.m > 1 ? st.leg.target.m : 0),
     turnSum: (t) => (t.infos.some((x) => x.hit) ? '✓' : t.infos[0]?.mode === 'set' ? 'Ziel' : t.stopped ? 'Pass' : '–'),
     // Passen ist nur beim eigenen Ziel möglich. Bei „erster Treffer“ gibt es nichts anderes, dort heißt die Taste immer so.
-    stopLabel: (st) => (st.cfg.set === 'first' || (st.turn && canPass(st.leg, st.current, st.turn)) ? 'Passen' : 'Fertig'),
+    stopLabel: (st) => (st.cfg.set === 'first' || (st.turn && canPass(st.leg, st.current, st.turn, st.cfg)) ? 'Passen' : 'Fertig'),
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? st.leg.lives[p] + ' ♥' : 'raus'),
     col: ['Getroffen', (ml) => pct(ml.hitRate)],
     stats: (f, h) => `<div class="stats">
@@ -802,14 +900,21 @@ Object.assign(MODES, {
   war: {
     label: 'War', group: 'party',
     opts: [
+      ['warStyle', 'Spielart', [['hold', 'Erobern und halten'], ['rounds', 'Runden']]],
       ['warSet', 'Felder', [['cricket', '15–20 + Bull'], ['all', '1–20 + Bull']]],
-      ['warNeed', 'Erobern mit', [[3, '3 Marks'], [1, '1 Treffer']]],
+      ['warNeed', 'Erobern mit', [[3, '3 Marks'], [1, '1 Treffer']], 3, (s) => s.warStyle !== 'rounds'],
+      ['warRounds', 'Runden je Spieler', [[10, '10'], [15, '15'], [20, '20'], [25, '25'], [30, '30']], 10, (s) => s.warStyle === 'rounds'],
+      ['warCount', 'Es zählt', [['marks', 'Marks'], ['hits', 'Treffer']], 'marks', (s) => s.warStyle === 'rounds'],
     ],
-    config: (s) => ({ set: s.warSet, need: s.warNeed }),
+    config: (s) => (s.warStyle === 'rounds'
+      ? { set: s.warSet, style: 'rounds', rounds: s.warRounds, count: s.warCount }
+      : { set: s.warSet, need: s.warNeed, style: 'hold' }),
     board: boardWar,
     nums: (st) => warFields(st.cfg).filter((v) => v !== 25).sort((a, b) => a - b),
+    bar: (st) => (st.turn && warRounds(st.cfg) ? `${st.leg.contenders ? 'Extra-Runde' : `Runde ${st.leg.rounds[st.current] + 1}<small>von ${st.leg.stage}</small>`} · meiste Felder gewinnt` : ''),
     targets: (st) => {
       if (!st.turn) return [];
+      if (warRounds(st.cfg)) return warFields(st.cfg).filter((f) => st.leg.owner[f] !== st.current).map((f) => [f, pcolor(st.current)]);
       if (st.leg.tb) return one(st, 25);
       return warFields(st.cfg).filter((f) => warOpen(st.leg, f, st.current)).map((f) => [f, pcolor(st.current)]);
     },
@@ -845,6 +950,56 @@ Object.assign(MODES, {
       ${h.tile('Ø Darts als Stopper', num(sc.stopPerLeg, 1), 'bis alle Zahlen zu sind')}
       ${h.matchTiles(sc)}
     </div>${h.trend(sc.history, 'Punkte als Scorer', 0)}${h.recent(sc.history, 'Scram', 'Punkte als Scorer', 0)}`,
+  },
+
+  highlow: {
+    label: 'High / Low', group: 'party',
+    opts: [
+      ['hlDir', 'Richtung', [['high', 'High'], ['low', 'Low']]],
+      ['hlPlus', 'Genau um 1 geschafft', [[0, 'Normal'], [1, 'Leben zurück']]],
+      ['hl180', '180', [[0, 'Normal'], [1, 'Kostet ein Leben']], 0, (s) => s.hlDir !== 'low'],
+    ],
+    config: (s) => ({ dir: s.hlDir, lives: 3, plusOne: Boolean(s.hlPlus), ...(s.hlDir === 'low' ? {} : { ban180: Boolean(s.hl180) }) }),
+    board: boardHighlow,
+    turnSum: (t) => String(sumBy(t, 'pts')),
+    homeScore: (st, p) => (st.leg.lives[p] > 0 ? st.leg.lives[p] + ' ♥' : 'raus'),
+    col: ['Geschafft', (ml) => pct(ml.rate)],
+    bar: highlowBar,
+    stats: (k, h) => `<div class="stats">
+      ${h.tile('Vorgabe geschafft', pct(k.rate), `${k.ok} von ${k.tries} Runden`)}
+      ${h.tile('Leben verloren', k.lost, `${num(k.lostPerLeg, 1)} je Leg`)}
+      ${h.matchTiles(k)}
+    </div>${h.trend(k.history, 'Vorgabe geschafft in %', 0)}${h.recent(k.history, 'High-Low', 'Vorgabe geschafft', 0, ' %')}`,
+  },
+  snooker: {
+    label: 'Snooker', group: 'party',
+    opts: [
+      ['snVar', 'Variante', [['d501', '15 Rote (darts501)'], ['tm', 'Kurz: 9 Rote']]],
+      ['snCall', 'Farbe', [[1, 'Mit Ansage'], [0, 'Ohne Ansage']], 1, (s) => s.snVar !== 'tm'],
+      ['snRounds', 'Runden', [[1, '1'], [3, '3'], [5, '5'], [10, '10'], [15, '15']], 10, (s) => s.snVar === 'tm'],
+    ],
+    config: (s) => (s.snVar === 'tm' ? { variant: 'tm', rounds: s.snRounds } : { variant: 'd501', call: Boolean(s.snCall) }),
+    board: boardSnooker,
+    nums: (st) => (st.cfg.variant === 'tm' ? Array.from({ length: 15 }, (_, i) => i + 1) : ALL_NUMS),
+    targets: snTargets,
+    turnSum: (t) => { const f = sumBy(t, 'foul'); return String(sumBy(t, 'pts')) + (f ? ` F${f}` : ''); },
+    // Ansage: Eine Farbe zählt erst, wenn sie vorher angesagt ist. Daneben und Rot brauchen keine Ansage.
+    entry: (st, s) => {
+      if (!snNeedsCall(st.leg, st.cfg) || snValue(st.cfg, s) === null) return {};
+      return S.call ? { call: S.call } : 'Erst die Farbe ansagen, dann den Dart eingeben.';
+    },
+    homeScore: (st, p) => st.leg.score[p],
+    col: ['Höchstes Break', (ml) => ml.best],
+    bar: (st) => (st.turn && st.cfg.variant === 'tm' ? `${st.leg.contenders ? 'Stechen' : `Runde ${st.leg.rounds[st.current] + 1}<small>von ${st.leg.stage}</small>`}` : ''),
+    overlaySub: (st) => `<p class="ov-sub">Punkte: ${S.game.playerIds.map((_, q) => `${esc(pname(q))} ${st.legResults.at(-1).scores[q]}`).join(' · ')}</p>`,
+    stats: (sn, h) => `<div class="stats">
+      ${h.tile('Ø Punkte', num(sn.avgScore, 0), `${sn.finishedLegs} Legs`)}
+      ${h.tile('Bestwert', sn.bestScore ?? '–')}
+      ${h.tile('Höchstes Break', sn.bestBreak || '–')}
+      ${h.tile('Treffer', pct(sn.hitRate), `${sn.hits} von ${sn.darts} Darts eingelocht`)}
+      ${h.tile('Fouls', sn.fouls, `${num(sn.foulsPerLeg, 1)} je Leg`)}
+      ${h.matchTiles(sn)}
+    </div>${h.trend(sn.history, 'Ø Punkte', 0)}${h.recent(sn.history, 'Snooker', 'Punkte', 0)}`,
   },
 
   // ---------- Training ----------
@@ -955,7 +1110,7 @@ Object.assign(MODES, {
   gallery: {
     label: 'Shooting Gallery', group: 'training',
     opts: [
-      ['gaOver', 'Ziel', [['under', '0 oder drunter'], ['exact', 'Genau auf 0']]],
+      ['gaOver', 'Überwerfen', [['under', 'Checkt'], ['exact', 'Bust']]],
       ['gaOut', 'Finish', [['single', 'Beliebig'], ['double', 'Double Out'], ['master', 'Master Out']]],
     ],
     config: (s) => ({ over: s.gaOver, out: s.gaOut }),
@@ -972,6 +1127,23 @@ Object.assign(MODES, {
       ${h.tile('Ø Darts je Check', num(ga.dartsPerCheck, 1))}
       ${h.matchTiles(ga)}
     </div>${h.trend(ga.history, 'Punkte', 0)}${h.recent(ga.history, 'Shooting-Gallery', 'Punkte', 0)}`,
+  },
+  countup: {
+    label: 'Count-Up', group: 'training',
+    opts: [],
+    config: () => ({}),
+    board: boardCountup,
+    turnSum: ptsSum,
+    homeScore: (st, p) => st.leg.score[p],
+    col: ['Punkte', (ml) => ml.score],
+    bar: (st) => (st.turn ? `${st.leg.contenders ? 'Stechen' : `Runde ${st.leg.rounds[st.current] + 1}<small>von ${COUNTUP_ROUNDS}</small>`} · jeder Dart zählt` : ''),
+    overlaySub: (st, ev) => `<p class="ov-sub">${st.legResults.at(-1).scores[ev.p]} Punkte</p>`,
+    stats: (c, h) => `<div class="stats">
+      ${h.tile('Ø Punkte', num(c.avgScore, 0), `${c.finishedLegs} Legs`)}
+      ${h.tile('Bestwert', c.bestScore ?? '–')}
+      ${h.tile('Ø je Runde', num(c.ppr, 1), `${c.turns} Runden`)}
+      ${h.matchTiles(c)}
+    </div>${h.trend(c.history, 'Punkte', 0)}${h.recent(c.history, 'Count-Up', 'Punkte', 0)}`,
   },
   jdc: {
     label: 'JDC Challenge', group: 'training',

@@ -20,20 +20,25 @@
 //   Jetzt erlaubt canStop dem Setzer das Aufhören vor dem ersten Dart und nach Fehlwürfen. Die Runde endet ohne
 //   Leben weniger, das Ziel bleibt stehen, der Nächste muss es treffen. Ein Stopp ohne Dart war bis 0.8.0 nicht
 //   möglich, alte Spiele enthalten keinen. Eine Regelversion braucht es deshalb nicht.
+// Ohne Passen (cfg.pass === false, ab 0.9.0, Wunsch des Nutzers): Kommt das eigene Ziel zurück, muss der Setzer
+//   werfen wie alle anderen. Verfehlt er, verliert er ein Leben, das Ziel bleibt stehen, bis es jemand trifft.
+//   Keine Taste „Passen“. Fehlt pass (Spiele bis 0.8.1), ist Passen erlaubt wie bisher.
 // Wer keine Leben mehr hat, scheidet aus, der Letzte gewinnt.
 // Grenze der Eingabe: Single innen und außen sind ein Feld. Darts Corner trennt sie („big single").
 
 const same = (a, b) => a && b && a.s === b.s && a.m === b.m;
+export const passAllowed = (cfg) => cfg.pass !== false;
 // Eigenes Ziel kam zurück und ist in dieser Runde noch nicht getroffen. Vor dem ersten Dart ist leg.mode noch
 // der Stand der vorigen Runde, deshalb zählt dort nur das Ziel.
-export const canPass = (leg, p, turn) => Boolean(leg.target) && leg.setter === p
+export const canPass = (leg, p, turn, cfg) => passAllowed(cfg) && Boolean(leg.target) && leg.setter === p
   && (turn.darts.length === 0 || (leg.mode === 'hit' && leg.hitAt < 0));
+export const followTry = (t, cfg) => t.infos[0]?.mode === 'hit' && (!t.infos[0].own || !passAllowed(cfg));
 export const alive = (leg) => leg.lives.map((l, i) => (l > 0 ? i : -1)).filter((i) => i >= 0);
 
 export const follow = {
   id: 'follow',
   title: () => 'Follow the Leader',
-  subtitle: (cfg) => `${cfg.lives} Leben${cfg.set === 'first' ? '' : ' · letzter Dart legt fest'}`,
+  subtitle: (cfg) => `${cfg.lives} Leben${cfg.set === 'first' ? '' : ' · letzter Dart legt fest'}${passAllowed(cfg) ? '' : ' · ohne Passen'}`,
   defaults: { lives: 3 },
   minPlayers: 2,
 
@@ -71,8 +76,9 @@ export const follow = {
 
   // Aufhören ist erlaubt, sobald es nichts mehr zu treffen gibt: beim Festlegen oder nach dem Treffer.
   // Bei „erster Treffer" endet die Runde mit dem Festlegen von selbst, dort gibt es nur das Passen.
-  stops: () => true,
-  canStop: (leg, p, cfg, turn) => turn.darts.length < 3 && (canPass(leg, p, turn)
+  // „erster Treffer“ ohne Passen kennt kein Aufhören, die Taste entfällt.
+  stops: (cfg) => cfg.set !== 'first' || passAllowed(cfg),
+  canStop: (leg, p, cfg, turn) => turn.darts.length < 3 && (canPass(leg, p, turn, cfg)
     || (cfg.set !== 'first' && turn.darts.length > 0 && (leg.mode === 'set' || leg.hitAt >= 0))),
 
   turnEnd(leg, p, cfg, turn) {
@@ -95,14 +101,14 @@ export const follow = {
         if (leg.setDart) { leg.target = leg.setDart; leg.setter = p; }
         return null;
       }
-      if (leg.hitAt < 0) return leg.setter === p ? null : lose();
+      if (leg.hitAt < 0) return leg.setter === p && passAllowed(cfg) ? null : lose();
       turn.hitTarget = true;
       if (leg.setDart) leg.target = leg.setDart; // sonst bleibt das Ziel stehen
       leg.setter = p;
       return null;
     }
     if (leg.mode === 'set') return setFrom(leg.setDart);
-    if (leg.hitAt < 0) return leg.setter === p ? null : lose();
+    if (leg.hitAt < 0) return leg.setter === p && passAllowed(cfg) ? null : lose();
     turn.hitTarget = true;
     if (leg.hitAt === 2) { leg.target = null; leg.setter = p; return { again: true }; }
     if (leg.setDart) return setFrom(leg.setDart);
@@ -110,8 +116,9 @@ export const follow = {
     return null;
   },
 
+  // Versuche aufs Ziel. Das eigene Ziel zählt nur ohne Passen mit, dort ist es ein Pflichtversuch.
   line(st, p) {
-    const turns = st.turns.filter((t) => t.p === p && t.infos[0]?.mode === 'hit' && !t.infos[0].own);
+    const turns = st.turns.filter((t) => t.p === p && followTry(t, st.cfg));
     const hits = turns.filter((t) => t.hitTarget).length;
     return { darts: st.darts.filter((x) => x.p === p).length, tries: turns.length, hits, hitRate: turns.length ? hits / turns.length : null };
   },

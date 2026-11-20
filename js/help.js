@@ -20,6 +20,9 @@ export const TERMS = {
   Runs: 'Punkte beim Baseball. Single 1, Double 2, Triple 3.',
   Stopper: 'Beim Scram der Spieler, der Zahlen schließt. Er punktet nicht.',
   Scorer: 'Beim Scram der Spieler, der auf offenen Zahlen Punkte sammelt.',
+  Break: 'Beim Snooker die Punkte, die du hintereinander ohne Fehlwurf sammelst.',
+  Foul: 'Beim Snooker ein Regelverstoß. Der Nächste bekommt Strafpunkte, dein Break endet.',
+  Ansage: 'Beim Snooker tippst du vor dem Wurf auf die Farbe, die du treffen willst.',
 };
 
 export const HELP = {
@@ -94,11 +97,12 @@ export const HELP = {
   follow: {
     goal: 'Triff das Feld, das dir vorgegeben wird, und gib den anderen schwere Felder vor.',
     turn: 'Das Ziel ist ein genaues Feld, zum Beispiel T20 oder D5. Wer anfängt, legt es mit seinem ersten Treffer fest, daneben zählt nicht. Danach hat jeder drei Darts, um das Ziel zu treffen. Wer trifft und noch Darts hat, legt mit seinem nächsten Treffer das neue Ziel fest. Damit endet seine Runde.',
-    score: 'Triffst du das Ziel nicht, verlierst du ein Leben, und der Nächste muss dasselbe Ziel treffen. Triffst du das Ziel mit dem letzten Dart oder danach nur daneben, bleibt das Ziel für den Nächsten stehen. Kommt dein eigenes Ziel zu dir zurück, darfst du es versuchen oder mit „Passen“ aussetzen. Beides kostet kein Leben, beim Passen bleibt das Ziel für den Nächsten stehen.',
+    score: 'Triffst du das Ziel nicht, verlierst du ein Leben, und der Nächste muss dasselbe Ziel treffen. Triffst du das Ziel mit dem letzten Dart oder danach nur daneben, bleibt das Ziel für den Nächsten stehen. Kommt dein eigenes Ziel zu dir zurück, darfst du es versuchen oder mit „Passen“ aussetzen. Beides kostet kein Leben, beim Passen bleibt das Ziel für den Nächsten stehen. Mit „Muss werfen“ gibt es kein Passen: Verfehlst du dein eigenes Ziel, kostet das ein Leben.',
     win: 'Wer keine Leben mehr hat, ist raus. Der Letzte gewinnt.',
     opts: {
       flSet: 'Erster Treffer: wie oben. Letzter Dart (darts501): Nach dem Treffer legt dein letzter Dart das Ziel fest, „Fertig" beendet die Runde früher. Triffst du das Ziel erst mit dem dritten Dart, bekommst du eine Extra-Runde zum Festlegen. Landet ein festlegender Dart daneben, kostet das ein Leben.',
       flLives: 'Wie viele Leben jeder hat.',
+      flPass: 'Passen erlaubt: Kommt dein Ziel zurück, darfst du werfen oder passen, beides ohne Strafe. Muss werfen: Du wirfst wie alle anderen. Verfehlst du, verlierst du ein Leben, und das Ziel geht weiter, bis es jemand trifft.',
     },
     example: 'Anna trifft mit dem ersten Dart T20, das ist das Ziel. Ben trifft T20 mit dem ersten Dart und mit dem zweiten D5. Jetzt muss Carla D5 treffen. Trifft Carla D5 erst mit dem dritten Dart, muss auch David D5 treffen. Single innen und außen kann die App nicht unterscheiden, beide zählen als dasselbe Feld.',
   },
@@ -234,8 +238,11 @@ export const HELP = {
     score: 'Nach einer Eroberung hat jeder andere Spieler genau eine Runde, um das Feld zurückzuerobern. Dazu muss er in dieser Runde mehr Marks darauf werfen, als der Halter hat. Die Stärke steht im Feld. Danach ist das Feld gesichert. Gelingt die Rückeroberung, beginnt das Ganze von vorn.',
     win: 'Sind alle Felder gesichert, gewinnt, wer die meisten hält. Bei Gleichstand werfen die Gleichen je eine Runde aufs Bull, 25 zählt 1 Mark, Bull 2. Mehr Marks gewinnt.',
     opts: {
+      warStyle: 'Erobern und halten: wie oben. Runden: Jeder wirft die eingestellte Zahl Runden. Auf jedem Feld sammelst du über das ganze Spiel Treffer. Das Feld gehört dem, der darauf am meisten hat. Wer gleichzieht, muss überbieten, bis dahin behält der Halter das Feld. Nach der letzten Runde gewinnt, wer die meisten Felder hält. Steht es gleich, werfen die Gleichen an der Spitze Extra-Runden mit je drei Darts, bis nach einer Runde einer vorn liegt. Ihre Treffer zählen weiter auf die Felder.',
+      warRounds: 'Nur bei „Runden“: wie viele Runden jeder wirft.',
+      warCount: 'Nur bei „Runden“. Marks: Single 1, Double 2, Triple 3, 25 zählt 1, Bull 2. Treffer: Jeder Treffer zählt 1, egal welcher Ring.',
       warSet: '15–20 + Bull: sieben Felder wie beim Cricket. 1–20 + Bull: alle 21 Felder, das dauert deutlich länger.',
-      warNeed: '3 Marks: Single 1, Double 2, Triple 3, 25 zählt 1, Bull 2. 1 Treffer: Jeder Treffer erobert ein freies Feld sofort. Stärke und Rückeroberung zählen auch hier Single 1, Double 2, Triple 3.',
+      warNeed: 'Nur bei „Erobern und halten“. 3 Marks: Single 1, Double 2, Triple 3, 25 zählt 1, Bull 2. 1 Treffer: Jeder Treffer erobert ein freies Feld sofort. Stärke und Rückeroberung zählen auch hier Single 1, Double 2, Triple 3.',
     },
     example: 'Anna erobert die 20 mit T20, Stärke 3. In seiner nächsten Runde trifft Ben T20 und 20, das sind 4 Marks. Die 20 gehört jetzt Ben, und Anna hat eine Runde für den Gegenangriff.',
   },
@@ -248,6 +255,38 @@ export const HELP = {
       scBull: '1–20 + Bull: Auch Bull ist eine Zahl, 25 und Bull schließen es beide. 1–20: ohne Bull.',
     },
     example: 'Als Stopper triffst du 20, T19 und 18: Alle drei sind zu. Dein Gegner wirft als Scorer jetzt auf die 17 und tiefer.',
+  },
+  highlow: {
+    goal: 'Übertriff bei High die Vorgabe, unterbiete sie bei Low.',
+    turn: 'Wer das Leg anwirft, legt mit zwei Darts vor. Danach hat jeder drei Darts. Dein Ergebnis ist die neue Vorgabe für den Nächsten, auch wenn du sie nicht geschafft hast.',
+    score: 'High: Die Felder zählen wie in X01. Low: Die Felder zählen ihren Wert, Bull zählt −50, 25 zählt −25, daneben +25. Summen unter 0 sind möglich. Gleich viel reicht in beiden Fällen nicht: Wer die Vorgabe nicht schafft, verliert ein Leben.',
+    win: 'Jeder hat 3 Leben. Wer keine mehr hat, ist raus. Der Letzte gewinnt.',
+    opts: {
+      hlDir: 'High: höher werfen als die Vorgabe. Low: niedriger werfen.',
+      hlPlus: 'Leben zurück: Schaffst du die Vorgabe um genau 1, bekommst du ein verlorenes Leben zurück.',
+      hl180: 'Nur bei High. Kostet ein Leben: Wer 180 wirft, verliert ein Leben. Ausnahme: Die Vorgabe ist 177, dann schlägt nur 180 sie.',
+    },
+    example: 'High: Anna legt mit zwei Darts 45 vor. Ben wirft 60 und schafft es, jetzt muss Carla mehr als 60 werfen. Low: Die Vorgabe ist 12. Du wirfst 1, 1 und Bull, das sind −48.',
+  },
+  snooker: {
+    goal: 'Hol mit Roten und Farben mehr Punkte als die anderen.',
+    turn: 'Erst eine Rote, dann eine Farbe, dann wieder eine Rote. 15 Rote: Rot sind 1 bis 15 (je 1 Punkt), die Farben sind 16 Gelb 2, 17 Grün 3, 18 Braun 4, 19 Blau 5, 20 Rosa 6, Bull und 25 Schwarz 7. Dein Break läuft über mehrere Runden weiter, solange du triffst. Kurz: Rot sind 1 bis 9, Farben 10 Gelb 2 bis 15 Schwarz 7, Bull 8. Jeder wirft drei Darts je Runde. Der Ring ist egal, Double und Triple zählen wie Single.',
+    score: '15 Rote: Eine getroffene Rote ist eingelocht und danach weg, die Farben bleiben, solange Rote liegen. Daneben, eine schon eingelochte Rote oder Rot statt Farbe beendet dein Break ohne Strafe. Triffst du eine Farbe, wenn Rot dran ist, ist das ein Foul: Der Nächste bekommt 4 Punkte, bei Blau, Rosa oder Schwarz deren Wert. Sind alle Roten weg, folgen die Farben der Reihe nach von Gelb bis Schwarz. Kurz: Die Roten bleiben im Spiel. Ein Fehlwurf zählt nicht, danach musst du wieder Rot treffen. Fouls gibt es nicht.',
+    win: '15 Rote: Wenn alles eingelocht ist, gewinnt die höchste Summe. Bei Gleichstand wird Schwarz wieder aufgesetzt: Wer zuerst Bull trifft, gewinnt. Kurz: Nach der letzten Runde gewinnt die höchste Summe, Gleichstand geht ins Stechen.',
+    opts: {
+      snVar: '15 Rote (darts501): das lange Spiel mit Break und Fouls. Kurz: 9 Rote, feste Rundenzahl.',
+      snCall: 'Nur bei 15 Roten. Mit Ansage: Vor dem Wurf auf eine Farbe tippst du sie an. Triffst du eine andere Farbe, ist das ein Foul, der Nächste bekommt den höheren Wert von angesagter und getroffener Farbe, mindestens 4. Auch in der Farbfolge am Ende ist eine falsche Farbe ein Foul. Ohne Ansage: Jede Farbe nach einer Roten zählt, ein Foul gibt es nur bei einer Farbe statt Rot.',
+      snRounds: 'Nur bei Kurz: wie viele Runden jeder wirft.',
+    },
+    example: '15 Rote mit Ansage: Du triffst 7 (Rot, 1 Punkt), sagst Rosa an und triffst 20 (6 Punkte). Dann triffst du 3 (Rot). Nach drei Darts geht dein Break in der nächsten Runde weiter. Sagst du Blau an und triffst 18 (Braun), ist das ein Foul: Der Nächste bekommt 5.',
+  },
+  countup: {
+    goal: 'Wirf in acht Runden so viele Punkte wie möglich.',
+    turn: 'Drei Darts je Runde, jedes Feld zählt seinen Wert. Double doppelt, Triple dreifach, 25 zählt 25, Bull 50.',
+    score: 'Alle Punkte werden addiert, es gibt kein Überwerfen.',
+    win: 'Nach acht Runden gewinnt die höchste Summe. Bei Gleichstand werfen nur die Punktgleichen je eine weitere Runde. Allein spielst du auf einen hohen Endstand.',
+    opts: {},
+    example: 'T20, T20 und 20 sind 140 Punkte in einer Runde. Acht solche Runden ergeben 1120.',
   },
   atc: {
     goal: 'Triff die Zahlen 1 bis 20 der Reihe nach, auf Wunsch absteigend oder in zufälliger Reihenfolge.',
@@ -310,10 +349,10 @@ export const HELP = {
     score: 'Punkte je Check: mit 3 Darts 12, mit 4 Darts 8, mit 5 Darts 6, mit 6 Darts 5, mit 7 Darts 3, mit 8 Darts 2, mit 9 Darts 1. Ohne Check gibt es 0 und es geht mit der nächsten Zahl weiter. Ein Bust setzt dich auf den Stand vor der Runde zurück.',
     win: 'Die höchste Summe nach 10 Zahlen gewinnt, höchstens 120. Gleichstand geht ins Stechen mit der nächsten Zahl.',
     opts: {
-      gaOver: '0 oder drunter: Die Zahl ist gecheckt, sobald dein Rest 0 erreicht oder darunter fällt. Genau auf 0: Überwerfen ist ein Bust.',
+      gaOver: 'Checkt: Die Zahl ist gecheckt, sobald dein Rest 0 erreicht oder darunter fällt. Bust: Nur genau 0 checkt, wer überwirft, hat einen Bust.',
       gaOut: 'Beliebig: Jeder Dart darf checken. Double Out: Der checkende Dart muss ein Doppel sein, Bull zählt als Doppel. Master Out: Doppel oder Triple. Checkt ein anderer Dart, ist das ein Bust.',
     },
-    example: '122 mit T20, T18, D4 ist ein Check in drei Darts und bringt 12 Punkte. Mit „0 oder drunter" und „Beliebig" reichen auch T20, T20 und die 5.',
+    example: '122 mit T20, T18, D4 ist ein Check in drei Darts und bringt 12 Punkte. Mit „Überwerfen: Checkt" und „Finish: Beliebig" reichen auch T20, T20 und die 5.',
   },
   jdc: {
     goal: 'Hol in drei Teilen möglichst viele Punkte.',

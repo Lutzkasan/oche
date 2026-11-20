@@ -1,6 +1,6 @@
 # Oche – Dart Counter
 
-Web-App (PWA) für das Android-Tablet: X01 und Cricket sowie über 25 Party- und Trainingsspiele, Spielerprofile, Statistik und Export/Import für den Gerätewechsel. Jeder Modus erklärt seine Regeln in der App (Knopf „Regeln" im Setup und im Spielmenü ☰). Läuft nach der Installation offline, im Hoch- und im Querformat (quer mit zweispaltigen Seiten).
+Web-App (PWA) für das Android-Tablet: X01 und Cricket sowie 29 Party- und Trainingsspiele, Spielerprofile, Statistik und Export/Import für den Gerätewechsel. Jeder Modus erklärt seine Regeln in der App (Knopf „Regeln" im Setup und im Spielmenü ☰). Läuft nach der Installation offline, im Hoch- und im Querformat (quer mit zweispaltigen Seiten).
 
 Eine „Runde" sind die drei Darts eines Spielers (im Turnierdarts „Aufnahme"). In den Rundenspielen wirft jeder Spieler genau eine Runde je Ziel, 121 und Shooting Gallery zählen stattdessen „Versuche".
 
@@ -52,12 +52,15 @@ Das Modusmenü gruppiert in Klassiker, Party und Training. Die vollständigen Re
 | Party | Steeples | Trefferquote, Rückschritte |
 | Party | War (ab 2 Spielern) | Ø Felder je Leg, Eroberungen, Rückeroberungen |
 | Party | Scram (genau 2 Spieler) | Ø Punkte als Scorer, Ø Darts als Stopper |
+| Party | High / Low (ab 2 Spielern) | Vorgabe geschafft, verlorene Leben |
+| Party | Snooker (15 Rote oder kurz mit 9 Roten) | Ø und beste Punkte, höchstes Break, Fouls |
 | Training | Around the Clock (aufsteigend, absteigend, zufällig) | Trefferquote, bestes Leg |
 | Training | Doppel-Training | Darts je Doppel |
 | Training | Chase the Dragon | Trefferquote, bestes Leg |
 | Training | Bob's 27 | Ø und bester Endstand, Doppelquote |
 | Training | 121 | höchstes Ziel, Checkout-Quote, Ø Darts je Check |
 | Training | Shooting Gallery | Ø Punkte, Checkout-Quote, Ø Darts je Check |
+| Training | Count-Up | Ø und beste Punkte, Ø je Runde |
 | Training | JDC Challenge | Ø Gesamt, Teilsummen, Stufe White bis Black |
 
 ### Regelquellen und Optionen
@@ -79,16 +82,20 @@ Wo sich Quellen widersprechen, ist die Abweichung eine Setup-Option. Wo keine Qu
 - Gotcha: Ziel 201/301/501, Überwerfen Bust (WDF, darthelp) oder Rest zurück (darthelp, Arachnid), Finish beliebig oder Doppel (WDF).
 - Shove Ha'penny: Bull mit (darts501) oder ohne (WDF). Überzählige Marks gehen an einen Gegner, der das Feld braucht (beide).
 - JDC Challenge: Standard (WDF, GoDartsPro) oder Lang mit 5 Durchgängen (mydartpfeil).
-- Shooting Gallery: Punktetabelle nach GoDartsPro. Ab 0.8.0 zwei Optionen (Wunsch aus dem Tablet-Test): Ziel „0 oder drunter“ (Vorgabe) oder „Genau auf 0“, Finish „Beliebig“ (Vorgabe), Double Out oder Master Out. Der Dart, der checkt, muss die Finish-Regel erfüllen, sonst Bust wie in X01. Spiele bis 0.7.1 rechnen weiter mit Double Out auf genau 0. UNSICHER: Ob die Quelle ein Doppel verlangt, ist nicht nachgeprüft.
+- Shooting Gallery: Punktetabelle nach GoDartsPro. Ab 0.8.0 zwei Optionen (Wunsch aus dem Tablet-Test): Überwerfen „Checkt“ (Vorgabe, 0 oder drunter reicht) oder „Bust“ (genau 0, bis 0.8.1 „Ziel: 0 oder drunter / Genau auf 0“ beschriftet), Finish „Beliebig“ (Vorgabe), Double Out oder Master Out. Der Dart, der checkt, muss die Finish-Regel erfüllen, sonst Bust wie in X01. Spiele bis 0.7.1 rechnen weiter mit Double Out auf genau 0. UNSICHER: Ob die Quelle ein Doppel verlangt, ist nicht nachgeprüft.
 - Baseball: 9 Innings, Inning n zählt nur die n, Single/Double/Triple = 1/2/3 Runs, nicht mit der Inning-Nummer malgenommen (GLD Products, darts501, dartspiks). Gleichstand: Extra-Innings auf Bull mit 25 = 1 und Bull = 2 (darts501, dartspiks) oder weiter mit 10, 11 … (GLD als zweite Möglichkeit). Option „7th Inning Catch": ohne Run im 7. Inning halbiert (darts501, getgamesgo). ANNAHME: abgerundet.
 - Fives: Summe ÷ 5, nur wenn durch 5 teilbar, ein Dart daneben macht die Runde ungültig (darts501, darthelp, dolfdarts). Ziel 51 (darthelp, dolfdarts, darting.com) oder 50/100 (darts501, darts-uk). Überwerfen: Bust (darthelp, dolfdarts) oder Erreichen reicht (ANNAHME für darts501/darts-uk, die das nicht regeln). Double/Triple voll (darts501, darthelp) oder wie Single (darts-uk). Ab 0.8.1 endet die Runde mit Bust, sobald ein Dart über das Ziel bringt (Wunsch aus dem Tablet-Test). Nicht eingebaut: feste Rundenzahl (Tiny Monkey).
 - Steeples: einzige Quelle Tiny Monkey. Kurs 1–20 und Bull, Double überspringt eine Zahl, Triple zwei, Treffer außer der Reihe → zurück. Was „zurück auf die vorige Zahl" heißt, ist offen: ein Feld zurück, zurück auf den Rundenbeginn oder ohne Strafe. Vorgabe ab 0.8.0 ist die Hausregel „Runde ohne Treffer“: Fehltreffer kosten nichts, nur eine Runde ganz ohne Treffer aufs Ziel kostet ein Feld. Die strenge Regel dauert am Brett zu lange. Steeplechase (darthelp, GLD, dartbase) ist ein anderes Spiel und nicht eingebaut.
-- War: einzige Quelle Tiny Monkey. Felder 15–20 + Bull oder 1–20 + Bull, erobern mit 3 Marks oder 1 Treffer. Stärke und Rückeroberung zählen Single 1, Double 2, Triple 3, ab 0.8.1 auch bei „1 Treffer“ (Wunsch aus dem Tablet-Test). Annahmen zu Stärke, Rückeroberung, Ende und Gleichstand stehen in `js/rules/war.js`. DartoUSA beschreibt unter „War" eine Killer-Variante, nicht eingebaut.
+- War: einzige Quelle Tiny Monkey. Felder 15–20 + Bull oder 1–20 + Bull, erobern mit 3 Marks oder 1 Treffer. Ab 0.9.0 zweite Spielart „Runden“ (Regel des Nutzers): 10 bis 30 Runden je Spieler, auf jedem Feld sammelt jeder Treffer (Marks oder Treffer), das Feld gehört dem mit den meisten, Gleichziehen reicht nicht. Am Ende gewinnen die meisten Felder, Gleichstand → Extra-Runden nur für die Gleichen an der Spitze. Stärke und Rückeroberung zählen Single 1, Double 2, Triple 3, ab 0.8.1 auch bei „1 Treffer“ (Wunsch aus dem Tablet-Test). Annahmen zu Stärke, Rückeroberung, Ende und Gleichstand stehen in `js/rules/war.js`. DartoUSA beschreibt unter „War" eine Killer-Variante, nicht eingebaut.
+- Follow the Leader ohne Passen (ab 0.9.0, Wunsch des Nutzers): Option „Eigenes Ziel kommt zurück: Muss werfen“. Der Setzer verliert beim Verfehlen ein Leben, das Ziel bleibt stehen, bis es jemand trifft.
+- Count-Up: 8 Runden, jeder Dart zählt (DARTSLIVE, darthelp). ANNAHME: Bull 25/50 wie am Steeldart-Brett, Gleichstand → Stechen.
+- High / Low (darthelp): Vorlage mit zwei Darts, danach übertreffen (High) bzw. unterbieten (Low), gleich reicht nicht, sonst Leben weg, 3 Leben. Low: Bull −50, 25 −25, daneben +25. Varianten der Quelle als Optionen: genau um 1 geschafft gibt ein Leben zurück, 180 kostet ein Leben außer gegen 177. ANNAHME: Wer das Leg anwirft, legt vor.
+- Snooker 15 Rote (darts501): Rote 1–15, Farben 16–20 und Bull als Schwarz. Rote werden eingelocht, das Break läuft über mehrere Runden (darts501, Darts Corner). Fouls nach darts501, Option „Mit Ansage“ (Farbe vor dem Dart antippen) oder „Ohne Ansage“. Snooker kurz (Tiny Monkey): Rote 1–9, Farben 10–15, Bull 8, 1 bis 15 Runden. Annahmen in `js/rules/snooker.js`.
 - Scram: 1–20 + Bull (GLD, dolfdarts, china-tungsten-dart) oder nur 1–20 (darts501 und darts-uk als „Scam", dartspiks). Jeder Treffer des Stoppers schließt die Zahl. Gleichstand: je ein Dart aufs Bull (dolfdarts). ANNAHME: Bull schlägt 25 schlägt den Rest, weil die Eingabe keinen Abstand kennt.
 
 Weitere Details:
 - Zufallswerte (Cricket-Zufallszahlen, Around the Clock „Zufällig", Killer- und Blind-Killer-Zahlen, Tic-Tac-Toe-Raster, Halve-It „Zufall", Doppel-Training „Zufällig") werden für jedes Leg neu ausgelost. Das Spiel speichert dafür einen Startwert (`seed`), daraus entstehen die Werte jedes Legs immer gleich. Spiele vor 0.6.1 haben keinen Startwert und behalten ihre Werte für alle Legs.
-- Golf und Follow the Leader zeigen eine Taste „Fertig" (in Follow the Leader beim eigenen Ziel „Passen"). Sie beendet die Runde vor dem dritten Dart, Passen auch ohne Dart, und wird als Stopp-Eintrag gespeichert. Rückgängig nimmt sie zurück.
+- Golf und Follow the Leader zeigen eine Taste „Fertig" (in Follow the Leader beim eigenen Ziel „Passen", nicht mit „Muss werfen“). Sie beendet die Runde vor dem dritten Dart, Passen auch ohne Dart, und wird als Stopp-Eintrag gespeichert. Rückgängig nimmt sie zurück.
 - Regelversion (ab 0.8.1): Jedes neue Spiel speichert die Regelversion, mit der es angelegt wurde (`config.rv`). Ändert eine spätere App eine Regel, rechnet sie alte Spiele weiter nach den alten Regeln. Spiele bis 0.8.0 haben keine Regelversion und bleiben bei Fives, War und Mickey Mouse beim alten Verhalten. Eine Revanche spielt nach den aktuellen Regeln.
 - Hare and Hounds und Scram vergeben die Rollen nach dem Anwurf: Wer das Leg anwirft, ist Hase bzw. in der ersten Hälfte Stopper. Neues Leg und Revanche tauschen die Rollen.
 - Mit einem Spieler heißt das Siegerfenster „Leg beendet" bzw. „Match beendet".
@@ -105,8 +112,9 @@ Die Kachel **Daten** ist die Verwaltungsseite: Sichern, Wiederherstellen, Archiv
 - **Zurücksetzen** löscht alle Spieler, Spiele, Lösch-Vermerke und Einstellungen. Vorher bietet die App eine Sicherung an (Teilen oder als Datei), dann musst du `LÖSCHEN` eintippen. Eine danach importierte Sicherung holt alles zurück. Das ist gewollt: So stellt eine Sicherung den alten Stand wieder her.
 - **Nicht lesbare Einträge** (ab 0.7.1): Import und Start prüfen jeden Eintrag (Form, erlaubte Zeichen, beim Import zusätzlich ein Probelauf des Spiels). Was die Prüfung nicht besteht, überspringt die App und meldet es. Die Einträge bleiben im Speicher und in jeder Sicherung. Unter **Daten** steht dann die Karte „Nicht lesbare Einträge" mit **Endgültig entfernen**. Ein einzelnes kaputtes Spiel legt so nicht mehr die ganze App lahm.
 - **Statistik und Solo-Spiele** (ab 0.7.1): Siege zählen nur aus Spielen mit Gegner. Spiele allein stehen als eigene Kachel „Solo-Spiele", im Verlauf und in den Listen als „Solo".
+- **Gesamtbilanz** (ab 0.9.0): Bei „Alle Spiele“ steht oben auf der Statistikseite die Bilanz über alle Modi im Filter: gespielt, gewonnen, verloren, Siegquote (nur Matches mit Gegner) und Solo-Spiele getrennt.
 - **Vollbild** (ab 0.8.0): Die installierte App läuft ohne Status- und Navigationsleiste (`display: fullscreen` im Manifest). Android übernimmt das für eine schon installierte App verzögert. Bleiben die Leisten, App neu installieren und vorher eine Sicherung ziehen.
-- Sicherungen ab Version 0.8.1 tragen Schema 9 (0.8.0: 8, 0.7.0: 7, 0.6.1: 6, 0.6.0: 5, 0.5.0: 4, 0.4.0: 3, 0.3.0: 2). Eine ältere App lehnt sie mit dem Hinweis „zuerst aktualisieren" ab. Ab 0.4.0 prüft der Import zusätzlich jeden Spielmodus einzeln.
+- Sicherungen ab Version 0.9.0 tragen Schema 10 (0.8.1: 9, 0.8.0: 8, 0.7.0: 7, 0.6.1: 6, 0.6.0: 5, 0.5.0: 4, 0.4.0: 3, 0.3.0: 2). Eine ältere App lehnt sie mit dem Hinweis „zuerst aktualisieren" ab. Ab 0.4.0 prüft der Import zusätzlich jeden Spielmodus einzeln.
 - Grenze: Löschst du in Chrome die Website-Daten oder deinstallierst die App, sind die Daten auf dem Gerät weg. Nur die Sicherung schützt davor. Die App erinnert nach 7 Tagen mit neuen Spielen an eine Sicherung.
 
 ## Aufbau
@@ -114,7 +122,7 @@ Die Kachel **Daten** ist die Verwaltungsseite: Sichern, Wiederherstellen, Archiv
 | Datei | Aufgabe |
 |---|---|
 | `js/rules/*.js` | Spielregeln je Modus. Ein Dart rein, Annotationen raus |
-| `js/rules/rounds.js` | Gemeinsame Auswertung für Rundenspiele mit Stechen (auch Baseball) |
+| `js/rules/rounds.js` | Gemeinsame Auswertung für Rundenspiele mit Stechen (auch Baseball, Count-Up, War „Runden“, Snooker kurz) |
 | `js/rules/checks.js` | Gemeinsame Checkout-Logik (121, Shooting Gallery) |
 | `js/rules/cricket.js` | Felder-Spiele mit Marks (Cricket, Mickey Mouse, Shove Ha'penny) |
 | `js/rules/atc.js` | Zielfolgen (Around the Clock, Doppel-Training, Chase the Dragon) |
@@ -141,7 +149,7 @@ Die Kachel **Daten** ist die Verwaltungsseite: Sichern, Wiederherstellen, Archiv
    - `applyDart` liefert `{ pts, marks, bust, won }`, optional `endTurn` und `event` (Flash).
    - Optional: `active(leg, p)`, `turnEnd(leg, p, cfg, turn)` mit `{ winner }`, `{ event }` oder `{ again }`, `canStop(...)` für die Taste „Fertig", `minPlayers`, `maxPlayers`.
 2. In `engine.js` bei `RULES` eintragen.
-3. In `modes.js` einen Eintrag in `MODES` anlegen (Gruppe, Optionen, `config`, Spielbrett, Tasten, Overlay, Statistik-Abschnitt).
+3. In `modes.js` einen Eintrag in `MODES` anlegen (Gruppe, Optionen, `config`, Spielbrett, Tasten, Overlay, Statistik-Abschnitt). Eine Option, die nur zu bestimmten anderen Werten passt, bekommt als fünftes Element eine Bedingung `(setup) => …`, das Setup blendet sie sonst aus.
 4. In `help.js` die Erklärung schreiben, in `stats.js` den `STATS`-Eintrag, in `test/rules.test.mjs` die Regeln testen.
 5. In `db.js` `SCHEMA` um eins erhöhen. Apps bis 0.3.0 prüfen nur diese Nummer.
 6. Zufallswerte nur über `draw(cfg, n, rnd)` in der Regel auslosen, mit dem übergebenen `rnd`. Die Engine ruft `draw` je Leg mit einem Generator aus `config.seed` auf. `Math.random` in einer Regel ergäbe bei jedem Laden ein anderes Spiel.

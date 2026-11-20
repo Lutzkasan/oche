@@ -1,7 +1,8 @@
 // Shooting Gallery (GoDartsPro): Checkouts 121 bis 130 der Reihe nach, je höchstens 9 Darts (3 Aufnahmen).
 // Punkte nach Darts bis zum Check: 3 = 12, 4 = 8, 5 = 6, 6 = 5, 7 = 3, 8 = 2, 9 = 1.
 // Finish (ab 0.8.0 als Option, Wunsch des Nutzers nach dem Tablet-Test):
-//   cfg.over: 'under' = 0 oder darunter reicht (Vorgabe im Setup), 'exact' = genau 0
+//   cfg.over: 'under' = 0 oder darunter reicht (Vorgabe im Setup), 'exact' = genau 0.
+//     Ab 0.9.0 heißt die Option in der App „Überwerfen: Checkt / Bust“ (Wunsch des Nutzers), die Werte bleiben.
 //   cfg.out:  'single' = jeder Dart (Vorgabe im Setup), 'double', 'master'
 // Spiele bis 0.7.1 speichern keine der beiden Angaben. Für sie gilt weiter genau 0 mit Doppel (galleryOut).
 // UNSICHER: Ob die Quelle ein Doppel verlangt, ließ sich am 14.11.2026 nicht nachprüfen.
@@ -27,7 +28,7 @@ export const gallery = {
   title: () => 'Shooting Gallery',
   subtitle: (cfg) => {
     const { out, over } = galleryOut(cfg);
-    return `${GALLERY_FROM}–${GALLERY_FROM + GALLERY_COUNT - 1} · max. 9 Darts · ${OUT_LABEL[out]} · ${over === 'under' ? '0 oder drunter' : 'genau 0'}`;
+    return `${GALLERY_FROM}–${GALLERY_FROM + GALLERY_COUNT - 1} · max. 9 Darts · ${OUT_LABEL[out]} · Überwerfen ${over === 'under' ? 'checkt' : 'ist Bust'}`;
   },
   defaults: { over: 'under', out: 'single' },
 

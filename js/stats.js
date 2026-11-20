@@ -5,6 +5,7 @@
 // Spielern. Ein Spiel allein hat keinen Gegner, es zählt als solo. Bis 0.7.0 galt der einzige Spieler als Sieger,
 // Trainingsmodi zeigten deshalb „12 / 12 gewonnen". legs bleibt die Zahl aller Legs (Nenner für Werte je Leg).
 import { replay } from './engine.js';
+import { followTry } from './rules/follow.js';
 
 const base = () => ({ matches: 0, won: 0, solo: 0, legs: 0, vsLegs: 0, legsWon: 0, darts: 0, history: [] });
 const legKey = (x) => x.setNo + '-' + x.legNo;
@@ -260,7 +261,7 @@ export const STATS = {
   follow: {
     init: () => ({ ...base(), tries: 0, hits: 0, lost: 0 }),
     add(f, ctx) {
-      const tries = ctx.myTurns.filter((t) => t.infos[0]?.mode === 'hit' && !t.infos[0].own);
+      const tries = ctx.myTurns.filter((t) => followTry(t, ctx.st.cfg));
       const hits = tries.filter((t) => t.hitTarget).length;
       f.tries += tries.length;
       f.hits += hits;
@@ -349,6 +350,37 @@ export const STATS = {
       push(w, ctx, ctx.st.legResults.length ? f / ctx.st.legResults.length : null);
     },
     fin(w) { w.hitRate = rate(w.hits, w.darts); w.fieldsPerLeg = rate(w.fields, w.finishedLegs); },
+  },
+
+  countup: {
+    init: () => ({ ...ends(), points: 0 }),
+    add(c, ctx) { addEnds(c, ctx); c.points += ctx.myTurns.reduce((m, t) => m + t.points, 0); },
+    fin(c) { finEnds(c); c.ppr = rate(c.points, c.turns); },
+  },
+
+  // Runden nach der Vorlage: geschafft oder Leben weg
+  highlow: {
+    init: () => ({ ...base(), tries: 0, ok: 0, lost: 0 }),
+    add(k, ctx) {
+      const tries = ctx.myTurns.filter((t) => t.bar !== null && t.bar !== undefined);
+      const ok = tries.filter((t) => !t.strike).length;
+      k.tries += tries.length;
+      k.ok += ok;
+      k.lost += tries.length - ok;
+      if (tries.length) push(k, ctx, (ok / tries.length) * 100);
+    },
+    fin(k) { k.rate = rate(k.ok, k.tries); k.lostPerLeg = rate(k.lost, k.legs); },
+  },
+
+  // Punkte je Leg aus dem Leg-Ende, höchstes Break aus den Darts, Fouls des Spielers
+  snooker: {
+    init: () => ({ ...ends(), bestBreak: 0, fouls: 0 }),
+    add(sn, ctx) {
+      addEnds(sn, ctx);
+      for (const d of ctx.myDarts) if (d.brk) sn.bestBreak = Math.max(sn.bestBreak, d.brk);
+      sn.fouls += ctx.myDarts.filter((d) => d.foul).length;
+    },
+    fin(sn) { finEnds(sn); sn.foulsPerLeg = rate(sn.fouls, sn.legs); },
   },
 
   // Scorer-Summe je Leg aus dem Leg-Ende, Stopper-Darts nur aus fertigen Legs

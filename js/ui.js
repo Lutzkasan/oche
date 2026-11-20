@@ -11,7 +11,7 @@ export const MODES = {};
 
 export const S = {
   view: 'home', players: [], games: [],
-  game: null, st: null, mult: 1, overlaySeen: -1,
+  game: null, st: null, mult: 1, call: null, overlaySeen: -1,
   setup: null, statsFor: null, newColor: COLORS[0],
   statsFilter: null, heatSel: null,
   persisted: null, lastExport: null,

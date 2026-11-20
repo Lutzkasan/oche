@@ -9,7 +9,7 @@ import {
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.8.1';
+export const APP_VERSION = '0.9.0';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
 // Alles, was die App außerhalb von IndexedDB ablegt. Zurücksetzen löscht genau diese Schlüssel.
@@ -214,7 +214,7 @@ function viewSetup() {
     <section class="card modes"><label>Spiel</label>${modeGrid(s.mode)}</section>
     <div class="setup-side"><section class="card">
       <div class="opt-head"><h3>${esc(ui.label)}</h3><button class="btn sm" data-a="help" data-v="${s.mode}">Regeln</button></div>
-      ${ui.opts.map(([k, label, choices]) => `<label>${label}</label>${seg(k, choices)}`).join('')}
+      ${ui.opts.filter(([, , , , when]) => !when || when(s)).map(([k, label, choices]) => `<label>${label}</label>${seg(k, choices)}`).join('')}
       <div class="two"><div><label>Legs</label>${stepper('legs', 1, 11, (v) => `First to ${v}`)}</div>
       <div><label>Sets</label>${stepper('sets', 1, 7, (v) => (v === 1 ? 'Ohne Sets' : `First to ${v}`))}</div></div></section>
     <section class="card"><label>Spieler <small>in Wurfreihenfolge antippen${maxP < Infinity ? ` · höchstens ${maxP}` : ''}</small></label>
@@ -388,9 +388,26 @@ const tile = (label, value, sub = '') => `<div class="stat"><span>${label}</span
 const STATS_H = {
   tile, trend,
   // Siege nur aus Spielen mit Gegner (stats.js). Spiele allein stehen als eigene Kachel ohne Sieg-Wertung.
-  matchTiles: (s) => `${s.matches || s.vsLegs || !s.solo ? tile('Matches', `${s.won} / ${s.matches}`, 'gewonnen') + tile('Legs', `${s.legsWon} / ${s.vsLegs}`, 'gewonnen') : ''}${s.solo ? tile('Solo-Spiele', s.solo, `${s.legs - s.vsLegs} ${s.legs - s.vsLegs === 1 ? 'Leg' : 'Legs'} ohne Gegner`) : ''}`,
+  matchTiles: (s) => `${s.matches || s.vsLegs || !s.solo ? tile('Matches', `${s.won} / ${s.matches}`, `gewonnen · ${s.matches - s.won} verloren`) + tile('Legs', `${s.legsWon} / ${s.vsLegs}`, 'gewonnen') : ''}${s.solo ? tile('Solo-Spiele', s.solo, `${s.legs - s.vsLegs} ${s.legs - s.vsLegs === 1 ? 'Leg' : 'Legs'} ohne Gegner`) : ''}`,
   recent: (h, title, label, d, unit = '') => (h.length ? `<h3 class="sec">Letzte ${title}-Matches <small>${label}</small></h3><div class="list">${h.slice(-10).reverse().map((e) => `<div class="row static"><span class="r-main">${num(e.value, d)}${unit}</span><span class="r-sub">${e.won == null ? 'Solo' : e.won ? 'Sieg' : 'Niederlage'}</span><span class="r-date">${day(e.at)}</span></div>`).join('')}</div>` : ''),
 };
+
+// Gesamtbilanz über alle Modi im Filter. Gleiche Zähler wie matchTiles: Sieg und Niederlage nur gegen Gegner,
+// Spiele allein getrennt. Nur beendete Spiele zählen. Bei einem einzelnen Modus im Filter stünde hier dasselbe
+// wie in dessen Abschnitt, die Bilanz erscheint deshalb nur bei „Alle Spiele“.
+function totalsSection(R) {
+  const all = Object.keys(MODES).map((m) => R[m]);
+  const sum = (k) => all.reduce((a, x) => a + x[k], 0);
+  const matches = sum('matches'), won = sum('won'), solo = sum('solo');
+  if (!matches && !solo) return '';
+  return `<section class="mstats"><h3 class="sec">Gesamtbilanz <small>alle Spiele im Filter</small></h3><div class="stats">
+    ${tile('Gespielt', matches, 'Matches mit Gegner')}
+    ${tile('Gewonnen', won)}
+    ${tile('Verloren', matches - won)}
+    ${tile('Siegquote', pct(matches ? won / matches : null))}
+    ${solo ? tile('Solo-Spiele', solo, 'ohne Sieg-Wertung') : ''}
+  </div></section>`;
+}
 
 function viewStats() {
   const list = visiblePlayers();
@@ -410,6 +427,7 @@ function viewStats() {
   // Abschnitt zeigen, wenn der Filter genau diesen Modus wählt, oder bei „Alle", sobald es Darts gibt
   const show = (id) => F.mode === id || (id === 'x01' && /^\d+$/.test(F.mode)) || (F.mode === 'all' && R[id].darts > 0);
   return `${head}
+    ${F.mode === 'all' ? totalsSection(R) : ''}
     ${Object.entries(MODES).filter(([m]) => show(m)).map(([m, u]) => `<section class="mstats"><h3 class="sec">${esc(u.label)}</h3>${u.stats(R[m], STATS_H)}</section>`).join('')}
     ${heatSection(R.board)}
     ${gamesSection(games)}
@@ -519,6 +537,7 @@ function announce() {
       capture: ['EROBERT', 'max msg'],
       recapture: ['ZURÜCKEROBERT', 'max msg'],
       void: ['ZÄHLT NICHT', 'bust msg'],
+      foul: [`FOUL +${de.info.foul}${de.info.foulTo >= 0 ? ' ' + name(de.info.foulTo) : ''}`, 'bust msg'],
     }[de.type];
     if (msg && !(de.type === 'match' && ev)) return flash(...msg);
   }
@@ -526,6 +545,7 @@ function announce() {
   if (ev.type === 'bust') return flash('BUST', 'bust');
   if (ev.type === 'strike') return flash('STRICH', 'bust msg');
   if (ev.type === 'life') return flash('−1 LEBEN', 'bust msg');
+  if (ev.type === 'lifeback') return flash('+1 LEBEN', 'max msg');
   if (ev.type === 'out') return flash(`${name(ev.turn.p)} raus`, 'bust msg');
   if (ev.type === 'halved') return flash('HALBIERT', 'bust msg');
   if (ev.type === 'back') return flash('ZURÜCK', 'bust msg');
@@ -554,8 +574,11 @@ function throwDart(s, mOverride) {
   if (!S.game || S.st.finished) return;
   let m = mOverride || (s === 0 ? 1 : S.mult);
   if (s === 25 && m === 3) m = 2; // kein Triple-Bull
-  if (!addEntry({ s, m, t: Date.now() })) return;
+  const extra = MODES[S.game.mode].entry?.(S.st, s, m) ?? {};
+  if (typeof extra === 'string') { toast(extra); return; }
+  if (!addEntry({ s, m, ...extra, t: Date.now() })) return;
   S.mult = 1;
+  S.call = null;
   navigator.vibrate?.(12);
   saveGame();
   announce();
@@ -575,6 +598,7 @@ function startGame(mode, config, playerIds) {
 function openGame(g) {
   S.game = g;
   S.mult = 1;
+  S.call = null;
   S.overlaySeen = g.darts.length;
   recompute();
   clearFlash();
@@ -721,6 +745,8 @@ const A = {
     startGame(g.mode, { ...g.config }, [...g.playerIds.slice(1), g.playerIds[0]]);
   },
   mult: (v) => { S.mult = S.mult === Number(v) ? 1 : Number(v); render(); },
+  // Snooker „Mit Ansage“: Farbe vor dem Dart ansagen. Nochmal tippen hebt die Ansage auf.
+  snCall: (v) => { S.call = S.call === Number(v) ? null : Number(v); render(); },
   dart: (v) => throwDart(Number(v)),
   bull: () => throwDart(25, 2),
   // „Fertig" bzw. „Passen": Aufnahme vor dem dritten Dart beenden (Golf, Follow the Leader). Gespeichert als Stopp-Eintrag.
@@ -742,6 +768,7 @@ const A = {
     if (!S.game.darts.length) return;
     S.game.darts.pop();
     S.mult = 1;
+    S.call = null;
     S.overlaySeen = S.game.darts.length;
     recompute();
     saveGame();

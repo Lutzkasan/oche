@@ -20,7 +20,10 @@ const DB_VERSION = 1;
 //     genau 0 nachspielen und so andere Spielstände errechnen.
 // 9 = config.rv (Regelversion je Spiel, engine.js). Eine App mit Schema 8 kennt rv nicht: Sie würde Fives,
 //     War „1 Treffer“ und Mickey Mouse mit Punkten nach den alten Regeln nachspielen.
-export const SCHEMA = 9;
+// 10 = Modi countup, highlow, snooker, Dart-Eintrag mit call (Snooker), War mit config.style, Follow the Leader
+//     mit config.pass. Eine App mit Schema 9 würde War „Runden“ als Erobern und Halten und Follow the Leader
+//     ohne Passen mit Passen nachspielen.
+export const SCHEMA = 10;
 
 // Löschen hinterlässt einen Lösch-Vermerk statt den Eintrag zu entfernen. Grund: Der Import führt nach ID
 // zusammen. Ein spurlos gelöschter Eintrag käme mit jeder älteren Sicherung zurück. Der Vermerk trägt ein
@@ -50,10 +53,12 @@ const isPrim = (v) => v == null || typeof v === 'boolean' || isNum(v) || (typeof
 export const validConfig = (c) => isObj(c) && Object.keys(c).length <= 32
   && Object.values(c).every((v) => isPrim(v) || (Array.isArray(v) && v.length <= 64 && v.every(isPrim)));
 
-// Dart { s, m, t } oder Stopp-Eintrag { s: 0, m: 0, stop: true }
+// Dart { s, m, t, call? } oder Stopp-Eintrag { s: 0, m: 0, stop: true }. call = angesagte Zahl (Snooker).
+const isField = (v) => Number.isInteger(v) && ((v >= 1 && v <= 20) || v === 25);
 export const validDart = (d) => isObj(d) && isTime(d.t) && (d.stop === true
   ? d.s === 0 && d.m === 0
-  : Number.isInteger(d.s) && ((d.s >= 0 && d.s <= 20) || d.s === 25) && (d.m === 1 || d.m === 2 || d.m === 3));
+  : Number.isInteger(d.s) && (d.s === 0 || isField(d.s)) && (d.m === 1 || d.m === 2 || d.m === 3)
+    && (d.call == null || isField(d.call)));
 
 export const validPlayer = (p) => isObj(p) && isId(p.id) && typeof p.name === 'string' && p.name.trim().length > 0
   && p.name.length <= 64 && typeof p.color === 'string' && COLOR.test(p.color)

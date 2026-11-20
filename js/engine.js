@@ -16,6 +16,7 @@
 //                                  { s: 0, m: 0, stop: true } in der Dartliste. Er zählt nicht als Dart.
 //                                  Meldet canStop vor dem ersten Dart true, beendet der Stopp eine Aufnahme
 //                                  ohne Dart (Passen in Follow the Leader, ab 0.8.1).
+//             Ein Dart darf zusätzlich call tragen (Snooker „Mit Ansage“: angesagte Farbe, ab 0.9.0).
 //             stops(cfg)           false = in dieser Einstellung gibt es kein Aufhören, die App blendet „Fertig“ aus
 //             minPlayers, maxPlayers   Spielerzahl, die das Setup zum Start verlangt
 //             draw(cfg, n, rnd)    Werte, die jedes Leg neu bekommt (Killer-Zahlen, TTT-Raster, Zielfolgen).
@@ -54,11 +55,14 @@ import { fives } from './rules/fives.js';
 import { steeples } from './rules/steeples.js';
 import { war } from './rules/war.js';
 import { scram } from './rules/scram.js';
+import { countup } from './rules/countup.js';
+import { highlow } from './rules/highlow.js';
+import { snooker } from './rules/snooker.js';
 
 export const RULES = {
   x01, cricket, atc, shanghai, killer, bobs, halveit, c121,
   ttt, hare, follow, chase, golf, knockout, ninelives, blindkiller, mickey, bermuda, gotcha, shove, dbl, jdc, gallery,
-  baseball, fives, steeples, war, scram,
+  baseball, fives, steeples, war, scram, countup, highlow, snooker,
 };
 
 export const RV = 1;
