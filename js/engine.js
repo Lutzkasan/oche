@@ -32,6 +32,9 @@
 // ändert, prüft cfg.rv und behält für ältere Spiele den alten Zweig. Fehlt rv (Spiele bis 0.8.0), gilt 0.
 //   1 (0.8.1): Fives Bust schon beim Dart, der über das Ziel bringt. War „1 Treffer“ mit Marks nach Ring.
 //              Mickey Mouse mit Punkten: Doppel-/Triple-Feld zählt den Dartwert, Treffer wählt das punktende Feld.
+//   2 (0.10.0): Anwurf im Satzmodus wechselt je Satz, innerhalb des Satzes je Leg (bis rv 1 je Leg über das ganze
+//              Match). Cut-Throat-Cricket: Wer alles zu hat und durch fremde Würfe die wenigsten Punkte bekommt,
+//              gewinnt sofort (bis rv 1 erst mit dem eigenen nächsten Treffer).
 import { x01 } from './rules/x01.js';
 import { cricket, mickey, shove } from './rules/cricket.js';
 import { atc, dbl, chase } from './rules/atc.js';
@@ -65,7 +68,7 @@ export const RULES = {
   baseball, fives, steeples, war, scram, countup, highlow, snooker,
 };
 
-export const RV = 1;
+export const RV = 2;
 const zeros = (n) => Array(n).fill(0);
 
 // ---------- Zufall je Leg ----------
@@ -105,14 +108,14 @@ export function replay(game) {
     rule, cfg, base, n, legIdx: 0,
     sets: zeros(n), legs: zeros(n),
     setNo: 1, legNo: 1,
-    legStarter: 0, current: 0,
+    legStarter: 0, setStarter: 0, current: 0,
     round: zeros(n),          // Aufnahmen je Spieler im aktuellen Leg
     legDarts: zeros(n),       // Darts je Spieler im aktuellen Leg
     leg: rule.initLeg(cfg, n, 0),
     turn: null,
     turns: [],                // alle abgeschlossenen Aufnahmen des Matches
     darts: [],                // alle Darts mit Annotationen
-    legResults: [],           // {winner, legNo, setNo, darts: [je Spieler], scores: [rule.score je Spieler am Leg-Ende]}
+    legResults: [],           // {winner, legNo, setNo, starter, darts: [je Spieler], scores: [rule.score je Spieler am Leg-Ende], cfg}
     finished: false, winner: null,
     lastEvent: null,          // Ergebnis der letzten abgeschlossenen Aufnahme
     dartEvent: null,          // Ereignis des letzten Darts (info.event)
@@ -184,8 +187,9 @@ function closeTurn(st, p, info) {
 
 function legWon(st, p) {
   const scores = Array.from({ length: st.n }, (_, q) => st.rule.score(st.leg, q));
-  st.legResults.push({ winner: p, legNo: st.legNo, setNo: st.setNo, darts: [...st.legDarts], scores, cfg: st.cfg });
+  st.legResults.push({ winner: p, legNo: st.legNo, setNo: st.setNo, starter: st.legStarter, darts: [...st.legDarts], scores, cfg: st.cfg });
   st.legs[p]++;
+  let newSet = false;
   if (st.legs[p] >= st.cfg.legs) {
     st.sets[p]++;
     if (st.sets[p] >= st.cfg.sets) {
@@ -198,9 +202,16 @@ function legWon(st, p) {
     st.legs = zeros(st.n);
     st.setNo++;
     st.lastEvent.type = 'set';
+    newSet = true;
   }
   st.legNo++;
-  st.legStarter = (st.legStarter + 1) % st.n;
+  // Anwurf: Ab Regelversion 2 wirft jeden Satz der Nächste an, im Satz wechselt es je Leg (wie im Turnier).
+  // Bis rv 1 wechselte der Anwurf je Leg über das ganze Match. Ging ein Satz mit gerader Leg-Zahl zu Ende,
+  // warf dann derselbe Spieler auch den nächsten Satz an.
+  if (newSet && st.base.rv >= 2) {
+    st.setStarter = (st.setStarter + 1) % st.n;
+    st.legStarter = st.setStarter;
+  } else st.legStarter = (st.legStarter + 1) % st.n;
   st.current = st.legStarter;
   st.round = zeros(st.n);
   st.legDarts = zeros(st.n);

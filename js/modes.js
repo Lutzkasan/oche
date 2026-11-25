@@ -6,12 +6,18 @@
 //   config(setup)     Regelparameter                  prepare(cfg, n)  Vorbereitung je Match (optional). Zufall je Leg: draw in der Regel
 //   board(st)         Spielbrett                      nums(st)         Zahlentasten
 //   targets(st)       hervorgehobene Tasten [[Zahl, Farbe]]            mult(st) Doppel/Triple-Taste markieren (2/3)
+//   pre(st)           Doppel/Triple vorwählen (2/3, ab 0.10.0). Nur in Modi, in denen das ganze Spiel lang allein
+//                     Doppel bzw. Triple zählt (Wunsch des Nutzers). Die Vorwahl gilt je Dart, Abwählen gilt für einen
+//                     Dart. Golf bleibt ohne, dort zählt ein Single 3 Schläge. Halve-It, Bermuda, JDC und Follow the
+//                     Leader auch, dort verlangen nur einzelne Runden Doppel/Triple.
 //   turnSum(turn, st) Summenfeld der Runde (3 Darts)         homeScore(st, p) Stand in „Laufende Spiele"
 //   col               [Kopf, Wert(matchLine)] im Match-Overlay          overlaySub(st, ev), bar(st)  optional
 //   stopLabel(st)     Beschriftung der Taste „Fertig" (optional, Follow the Leader: „Passen")
 //   entry(st, s, m)   Zusatz zum Dart-Eintrag (optional, Snooker: angesagte Farbe). Liefert ein Objekt zum
 //                     Anhängen oder einen Text: Dann zählt der Dart nicht, die App zeigt den Text als Meldung.
 //   stats(s, h)       Abschnitt in der Statistik (s = Zähler aus stats.js, h = Bausteine aus app.js)
+//   setupExtra(s)     zusätzliches Eingabefeld im Setup (optional, Shooting Gallery: eigene Ziele, ab 0.10.0)
+//   setupCheck(s)     Grund, warum das Spiel so nicht starten kann, sonst leer (optional)
 import { matchLine, dartLabel } from './engine.js';
 import { suggestCheckout } from './checkout.js';
 import { atcTargets, chaseTargets, chaseLabel } from './rules/atc.js';
@@ -22,7 +28,7 @@ import { NEED, cricketRows } from './rules/cricket.js';
 import { ROUTE, hareTarget } from './rules/hare.js';
 import { golfHole, golfTarget } from './rules/golf.js';
 import { jdcVisit, jdcDartTarget, jdcGrade } from './rules/jdc.js';
-import { GALLERY_COUNT, galleryOut } from './rules/gallery.js';
+import { galleryOut, galleryOwn, TARGETS_MIN, TARGETS_MAX, TARGETS_COUNT } from './rules/gallery.js';
 import { INNINGS, baseballTarget } from './rules/baseball.js';
 import { STEEPLE } from './rules/steeples.js';
 import { canPass, passAllowed } from './rules/follow.js';
@@ -515,9 +521,26 @@ function snTargets(st) {
   return [[on, c]];
 }
 
+// Shooting Gallery „Eigene“: Ziffernfeld im Setup. Die Liste steht in setup.gaTargets, die laufende Eingabe in S.gaInput.
+// Die gemerkte Liste kommt aus localStorage und wird deshalb bei jedem Lesen geprüft
+export const gaList = (s) => (Array.isArray(s.gaTargets) ? s.gaTargets : [])
+  .filter((v) => Number.isInteger(v) && v >= TARGETS_MIN && v <= TARGETS_MAX).slice(0, TARGETS_COUNT);
+function galleryPad(s) {
+  const tl = gaList(s);
+  const list = tl.map((v, i) => `<button class="chip tgt-chip" data-a="gaRemove" data-v="${i}" aria-label="${v} entfernen"><em>${i + 1}</em>${v} ✕</button>`).join('');
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'add'];
+  const label = { del: '⌫', add: '+' };
+  const full = tl.length >= TARGETS_COUNT;
+  return `<label>Eigene Ziele <small>${tl.length} von höchstens ${TARGETS_COUNT}, je ${TARGETS_MIN} bis ${TARGETS_MAX}. Antippen entfernt.</small></label>
+    <div class="chips tgt-list">${list || '<span class="muted">Noch keine Ziele</span>'}</div>
+    <div class="ga-pad"><div class="ga-show">${S.gaInput || '<span class="muted">Zahl</span>'}</div>
+      <div class="ga-keys">${keys.map((k) => `<button class="key ${k === 'add' ? 'ga-add' : ''}" data-a="gaKey" data-v="${k}" ${full && k !== 'del' ? 'disabled' : ''}>${label[k] || k}</button>`).join('')}</div></div>`;
+}
+
 // ---------- Leisten über dem Brett ----------
 const roundBar = (st, r, of, target) => `${st.leg.contenders ? 'Stechen' : `Runde ${r}<small>von ${of}</small>`} · Ziel <b>${target}</b>`;
 const one = (st, n) => (st.turn ? [[n, pcolor(st.current)]] : []);
+const ATC_PRE = { double: 2, triple: 3 }; // Around the Clock „Nur Doppel“ / „Nur Triple“
 
 // ---------- Statistik-Abschnitte ----------
 const endsStats = (title, label) => (e, h) => `<div class="stats">
@@ -526,14 +549,14 @@ const endsStats = (title, label) => (e, h) => `<div class="stats">
     ${h.tile('Trefferquote', pct(e.hitRate), `${e.hits} von ${e.darts} Darts aufs Ziel`)}
     ${'halved' in e ? h.tile('Halbiert', e.halved, `in ${e.turns} Runden`) : ''}
     ${h.matchTiles(e)}
-  </div>${h.trend(e.history, label, 0)}${h.recent(e.history, title, label, 0)}`;
+  </div>${h.trend(e.legHistory, label, 0)}${h.recent(e.history, title, label, 0)}`;
 const hitStats = (title, extra = () => '') => (a, h) => `<div class="stats">
     ${h.tile('Trefferquote', pct(a.hitRate), `${a.hits} von ${a.darts} Darts aufs Ziel`)}
     ${'bestLeg' in a ? h.tile('Bestes Leg', a.bestLeg ? a.bestLeg + ' Darts' : '–') : ''}
     ${extra(a, h)}${h.matchTiles(a)}
-  </div>${h.trend(a.history, 'Trefferquote in %', 1)}${h.recent(a.history, title, 'Trefferquote', 1, ' %')}`;
+  </div>${h.trend(a.legHistory, 'Trefferquote in %', 1)}${h.recent(a.history, title, 'Trefferquote', 1, ' %')}`;
 const mprStats = (title) => (c, h) => `<div class="stats">${h.tile('MPR', num(c.mpr, 2), `${c.darts} Darts`)}${h.matchTiles(c)}</div>
-  ${h.trend(c.history, 'MPR', 2)}${h.recent(c.history, title, 'MPR', 2)}`;
+  ${h.trend(c.legHistory, 'MPR', 2)}${h.recent(c.history, title, 'MPR', 2)}`;
 
 // ---------- Modi ----------
 const marksSum = (t) => sumBy(t, 'marks') + ' M';
@@ -556,17 +579,25 @@ Object.assign(MODES, {
     overlaySub: (st, ev) => `<p class="ov-sub">Checkout ${ev.turn.before} mit ${ev.turn.darts.map(dartLabel).join(' ')}</p>`,
     stats: (x, h) => {
       const doubles = Object.entries(x.doubles).sort((u, v) => v[1].tries - u[1].tries).slice(0, 12);
+      // Mehrere Startwerte: „Bestes Leg“ nur je Startwert in der Tabelle, gemischt wäre es nicht vergleichbar
+      const starts = Object.entries(x.byStart).sort((u, v) => u[0] - v[0]);
+      const mixed = starts.length > 1;
       return `<div class="stats">
       ${h.tile('3-Dart-Ø', num(x.avg, 2), `${x.darts} Darts`)}
       ${h.tile('First 9 Ø', num(x.f9, 2))}
       ${h.tile('Checkout-Quote', pct(x.coRate), `${x.checkouts} von ${x.atDouble} Darts`)}
       ${h.tile('Höchstes Finish', x.highOut || '–')}
-      ${h.tile('Bestes Leg', x.bestLeg ? x.bestLeg + ' Darts' : '–')}
+      ${mixed ? '' : h.tile('Bestes Leg', x.bestLeg ? x.bestLeg + ' Darts' : '–')}
       ${h.matchTiles(x)}
       ${h.tile('Höchste Runde', x.high || '–')}
       ${h.tile('180 · 140+ · 100+', `${x.t180} · ${x.t140} · ${x.t100}`)}
     </div>
-    ${h.trend(x.history, '3-Dart-Ø', 1)}
+    ${mixed ? `<h3 class="sec">Je Startwert</h3><div class="card table-card"><table class="stable">
+      <tr><th>Start</th><th>Matches</th><th>3-Dart-Ø</th><th>First 9 Ø</th><th>Bestes Leg</th><th>Checkout</th><th>Höchstes Finish</th></tr>
+      ${starts.map(([k, v]) => `<tr><td>${k}</td><td>${v.matches ? `${v.won} / ${v.matches}` : v.solo ? `${v.solo} solo` : '–'}</td><td>${num(v.avg, 2)}</td><td>${num(v.f9, 2)}</td>
+        <td>${v.bestLeg ? v.bestLeg + ' Darts' : '–'}</td><td>${pct(v.coRate)}</td><td>${v.highOut || '–'}</td></tr>`).join('')}
+    </table></div>` : ''}
+    ${h.trend(x.legHistory, '3-Dart-Ø', 1)}
     ${doubles.length ? `<h3 class="sec">Doppelquote <small>Darts mit Ein-Dart-Finish (Double Out)</small></h3>
       <div class="doubles">${doubles.map(([key, v]) => `<div class="dbl"><b>${key}</b><span class="bar"><i style="width:${Math.round((v.hits / v.tries) * 100)}%"></i></span><small>${v.hits}/${v.tries} · ${pct(v.hits / v.tries)}</small></div>`).join('')}</div>` : ''}
     ${h.recent(x.history, 'X01', '3-Dart-Ø', 2)}`;
@@ -606,6 +637,7 @@ Object.assign(MODES, {
       return st.cfg.numbers.map((nr, q) => [nr, pcolor(q), q]).filter(([, , q]) => q !== p && st.leg.lives[q] > 0);
     },
     mult: (st) => (st.turn && st.cfg.zone === 'double' ? 2 : 0),
+    pre: (st) => (st.cfg.zone === 'double' ? 2 : 0),
     turnSum: (t) => { const k = sumBy(t, 'taken'); return k ? '−' + k : '0'; },
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? st.leg.lives[p] + ' ♥' : 'raus'),
     col: ['−Leben', (ml) => ml.taken],
@@ -613,7 +645,7 @@ Object.assign(MODES, {
       ${h.tile('Ø Darts bis Killer', num(k.avgToKiller, 1), `${k.killerLegs} Legs`)}
       ${h.tile('Leben genommen', k.taken, `${num(k.takenPerLeg, 1)} je Leg`)}
       ${h.matchTiles(k)}
-    </div>${h.trend(k.history, 'Darts bis Killer', 1)}${h.recent(k.history, 'Killer', 'Darts bis Killer', 1)}`,
+    </div>${h.trend(k.legHistory, 'Darts bis Killer', 1)}${h.recent(k.history, 'Killer', 'Darts bis Killer', 1)}`,
   },
   blindkiller: {
     label: 'Blind Killer', group: 'party',
@@ -625,6 +657,7 @@ Object.assign(MODES, {
     board: boardBlind,
     targets: (st) => (st.turn ? st.cfg.numbers.filter((nr, q) => st.leg.lives[q] > 0).map((nr) => [nr, 'var(--gold)']) : []),
     mult: (st) => (st.turn ? 2 : 0),
+    pre: () => 2,
     turnSum: (t) => { const k = sumBy(t, 'taken') + sumBy(t, 'lost'); return k ? '−' + k : '0'; },
     homeScore: (st, p) => (st.leg.lives[p] > 0 ? 'im Spiel' : 'raus'),
     col: ['−Leben', (ml) => ml.taken],
@@ -635,7 +668,7 @@ Object.assign(MODES, {
       ${h.tile('Leben genommen', b.taken, `${num(b.takenPerLeg, 1)} je Leg`)}
       ${h.tile('Eigentreffer', b.lost)}
       ${h.matchTiles(b)}
-    </div>${h.trend(b.history, 'Leben genommen je Leg', 1)}${h.recent(b.history, 'Blind-Killer', 'Leben genommen je Leg', 1)}`,
+    </div>${h.trend(b.legHistory, 'Leben genommen je Leg', 1)}${h.recent(b.history, 'Blind-Killer', 'Leben genommen je Leg', 1)}`,
   },
   ttt: {
     label: 'Tic-Tac-Toe', group: 'party',
@@ -685,7 +718,7 @@ Object.assign(MODES, {
       ${h.tile('Ziel getroffen', pct(f.hitRate), `${f.hits} von ${f.tries} Versuchen`)}
       ${h.tile('Leben verloren', f.lost, `${num(f.lostPerLeg, 1)} je Leg`)}
       ${h.matchTiles(f)}
-    </div>${h.trend(f.history, 'Ziel getroffen in %', 0)}${h.recent(f.history, 'Follow-the-Leader', 'Ziel getroffen', 0, ' %')}`,
+    </div>${h.trend(f.legHistory, 'Ziel getroffen in %', 0)}${h.recent(f.history, 'Follow-the-Leader', 'Ziel getroffen', 0, ' %')}`,
   },
   knockout: {
     label: 'Knockout', group: 'party',
@@ -703,7 +736,7 @@ Object.assign(MODES, {
       ${h.tile('Ø Runde', num(k.ppr, 1), `${k.turns} Runden`)}
       ${h.tile('Striche', k.strikes, `${num(k.strikesPerLeg, 1)} je Leg`)}
       ${h.matchTiles(k)}
-    </div>${h.trend(k.history, 'Ø Runde', 1)}${h.recent(k.history, 'Knockout', 'Ø Runde', 1)}`,
+    </div>${h.trend(k.legHistory, 'Ø Runde', 1)}${h.recent(k.history, 'Knockout', 'Ø Runde', 1)}`,
   },
   gotcha: {
     label: 'Gotcha', group: 'party',
@@ -721,7 +754,7 @@ Object.assign(MODES, {
       ${h.tile('3-Dart-Ø', num(g.avg, 1), `${g.darts} Darts`)}
       ${h.tile('Gotchas', g.kills, 'Gegner auf 0 gesetzt')}
       ${h.matchTiles(g)}
-    </div>${h.trend(g.history, '3-Dart-Ø', 1)}${h.recent(g.history, 'Gotcha', '3-Dart-Ø', 1)}`,
+    </div>${h.trend(g.legHistory, '3-Dart-Ø', 1)}${h.recent(g.history, 'Gotcha', '3-Dart-Ø', 1)}`,
   },
   mickey: {
     label: 'Mickey Mouse', group: 'party',
@@ -769,7 +802,7 @@ Object.assign(MODES, {
       ${h.tile('Beste Punktzahl', sh.bestScore ?? '–', 'in einem Leg')}
       ${h.tile('Shanghais', sh.shanghais)}
       ${h.matchTiles(sh)}
-    </div>${h.trend(sh.history, 'Ø Punkte je Runde', 1)}${h.recent(sh.history, 'Shanghai', 'Ø Punkte je Runde', 1)}`,
+    </div>${h.trend(sh.legHistory, 'Ø Punkte je Runde', 1)}${h.recent(sh.history, 'Shanghai', 'Ø Punkte je Runde', 1)}`,
   },
   halveit: {
     label: 'Halve-It', group: 'party',
@@ -829,7 +862,7 @@ Object.assign(MODES, {
       ${h.tile('Beste Runde', [9, 18].filter((k) => g.best[k] != null).map((k) => `${g.best[k]} <small>(${k})</small>`).join(' · ') || '–')}
       ${h.tile('Hole in One', g.aces)}
       ${h.matchTiles(g)}
-    </div>${h.trend(g.history, 'Ø Schläge je Loch', 2)}${h.recent(g.history, 'Golf', 'Ø Schläge je Loch', 2)}`,
+    </div>${h.trend(g.legHistory, 'Ø Schläge je Loch', 2)}${h.recent(g.history, 'Golf', 'Ø Schläge je Loch', 2)}`,
   },
   ninelives: {
     label: 'Nine Lives', group: 'party',
@@ -864,7 +897,7 @@ Object.assign(MODES, {
       ${h.tile('Trefferquote', pct(b.hitRate), `${b.hits} von ${b.darts} Darts auf die Zahl`)}
       ${h.tile('Perfekte Innings', b.perfect, '9 Runs in einem Inning')}
       ${h.matchTiles(b)}
-    </div>${h.trend(b.history, 'Ø Runs', 1)}${h.recent(b.history, 'Baseball', 'Runs', 0)}`,
+    </div>${h.trend(b.legHistory, 'Ø Runs', 1)}${h.recent(b.history, 'Baseball', 'Runs', 0)}`,
   },
   fives: {
     label: 'Fives', group: 'party',
@@ -883,7 +916,7 @@ Object.assign(MODES, {
       ${h.tile('Teilbare Runden', pct(f.fiveRate), `${f.fives} von ${f.turns}`)}
       ${h.tile('Busts', f.busts)}
       ${h.matchTiles(f)}
-    </div>${h.trend(f.history, 'Ø Punkte je Runde', 2)}${h.recent(f.history, 'Fives', 'Ø Punkte je Runde', 2)}`,
+    </div>${h.trend(f.legHistory, 'Ø Punkte je Runde', 2)}${h.recent(f.history, 'Fives', 'Ø Punkte je Runde', 2)}`,
   },
   steeples: {
     label: 'Steeples', group: 'party',
@@ -928,7 +961,7 @@ Object.assign(MODES, {
       ${h.tile('Zurückerobert', w.recaptures)}
       ${h.tile('Trefferquote', pct(w.hitRate), `${w.hits} von ${w.darts} Darts auf offene Felder`)}
       ${h.matchTiles(w)}
-    </div>${h.trend(w.history, 'Ø Felder je Leg', 1)}${h.recent(w.history, 'War', 'Felder je Leg', 1)}`,
+    </div>${h.trend(w.legHistory, 'Ø Felder je Leg', 1)}${h.recent(w.history, 'War', 'Felder je Leg', 1)}`,
   },
   scram: {
     label: 'Scram', group: 'party',
@@ -949,7 +982,7 @@ Object.assign(MODES, {
       ${h.tile('Bestwert', sc.bestScore ?? '–')}
       ${h.tile('Ø Darts als Stopper', num(sc.stopPerLeg, 1), 'bis alle Zahlen zu sind')}
       ${h.matchTiles(sc)}
-    </div>${h.trend(sc.history, 'Punkte als Scorer', 0)}${h.recent(sc.history, 'Scram', 'Punkte als Scorer', 0)}`,
+    </div>${h.trend(sc.legHistory, 'Punkte als Scorer', 0)}${h.recent(sc.history, 'Scram', 'Punkte als Scorer', 0)}`,
   },
 
   highlow: {
@@ -969,7 +1002,7 @@ Object.assign(MODES, {
       ${h.tile('Vorgabe geschafft', pct(k.rate), `${k.ok} von ${k.tries} Runden`)}
       ${h.tile('Leben verloren', k.lost, `${num(k.lostPerLeg, 1)} je Leg`)}
       ${h.matchTiles(k)}
-    </div>${h.trend(k.history, 'Vorgabe geschafft in %', 0)}${h.recent(k.history, 'High-Low', 'Vorgabe geschafft', 0, ' %')}`,
+    </div>${h.trend(k.legHistory, 'Vorgabe geschafft in %', 0)}${h.recent(k.history, 'High-Low', 'Vorgabe geschafft', 0, ' %')}`,
   },
   snooker: {
     label: 'Snooker', group: 'party',
@@ -999,7 +1032,7 @@ Object.assign(MODES, {
       ${h.tile('Treffer', pct(sn.hitRate), `${sn.hits} von ${sn.darts} Darts eingelocht`)}
       ${h.tile('Fouls', sn.fouls, `${num(sn.foulsPerLeg, 1)} je Leg`)}
       ${h.matchTiles(sn)}
-    </div>${h.trend(sn.history, 'Ø Punkte', 0)}${h.recent(sn.history, 'Snooker', 'Punkte', 0)}`,
+    </div>${h.trend(sn.legHistory, 'Ø Punkte', 0)}${h.recent(sn.history, 'Snooker', 'Punkte', 0)}`,
   },
 
   // ---------- Training ----------
@@ -1014,6 +1047,8 @@ Object.assign(MODES, {
     prepare: (cfg) => { const { targets, ...rest } = cfg; return rest; },
     board: boardAtc,
     targets: (st) => { const t = st.turn && atcTargets(st.cfg)[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
+    mult: (st) => (st.turn ? ATC_PRE[st.cfg.zone] || 0 : 0),
+    pre: (st) => ATC_PRE[st.cfg.zone] || 0,
     turnSum: advSum,
     homeScore: (st, p) => { const t = atcTargets(st.cfg)[st.leg.pos[p]]; return t ? '→ ' + tLabel(t) : '✓'; },
     col: ['Quote', (ml) => pct(ml.hitRate)],
@@ -1030,6 +1065,7 @@ Object.assign(MODES, {
     board: boardDbl,
     targets: (st) => { const t = st.turn && atcTargets(st.cfg)[st.leg.pos[st.current]]; return t ? one(st, t) : []; },
     mult: (st) => (st.turn ? 2 : 0),
+    pre: () => 2,
     turnSum: advSum,
     homeScore: (st, p) => { const t = atcTargets(st.cfg)[st.leg.pos[p]]; return t ? '→ ' + (t === 25 ? 'Bull' : 'D' + t) : '✓'; },
     col: ['Quote', (ml) => pct(ml.hitRate)],
@@ -1039,7 +1075,7 @@ Object.assign(MODES, {
       ${h.tile('Doppelquote', pct(a.hitRate))}
       ${h.tile('Bestes Leg', a.bestLeg ? a.bestLeg + ' Darts' : '–')}
       ${h.matchTiles(a)}
-    </div>${h.trend(a.history, 'Darts je Doppel', 2)}${h.recent(a.history, 'Doppel-Training', 'Darts je Doppel', 2)}`,
+    </div>${h.trend(a.legHistory, 'Darts je Doppel', 2)}${h.recent(a.history, 'Doppel-Training', 'Darts je Doppel', 2)}`,
   },
   chase: {
     label: 'Chase the Dragon', group: 'training',
@@ -1048,6 +1084,8 @@ Object.assign(MODES, {
     board: boardChase,
     targets: (st) => { const t = st.turn && chaseTargets(st.cfg)[st.leg.pos[st.current]]; return t ? one(st, t.s) : []; },
     mult: (st) => { const t = st.turn && chaseTargets(st.cfg)[st.leg.pos[st.current]]; return t ? (t.s === 25 ? (t.m === 2 ? 2 : 0) : 3) : 0; },
+    pre: () => 3, // Bull und 25 haben eigene Tasten, die die Vorwahl nicht beachten
+
     turnSum: advSum,
     homeScore: (st, p) => { const t = chaseTargets(st.cfg)[st.leg.pos[p]]; return t ? '→ ' + chaseLabel(t) : '✓'; },
     col: ['Quote', (ml) => pct(ml.hitRate)],
@@ -1064,6 +1102,7 @@ Object.assign(MODES, {
     board: boardBobs,
     targets: (st) => one(st, bobsTarget(st.leg, st.current)),
     mult: (st) => (st.turn ? 2 : 0),
+    pre: () => 2,
     turnSum: (t) => signed(sumBy(t, 'pts')),
     homeScore: (st, p) => (st.leg.out[p] ? 'raus' : st.leg.score[p]),
     col: ['Punkte', (ml) => ml.score],
@@ -1079,7 +1118,7 @@ Object.assign(MODES, {
       ${h.tile('Doppelquote', pct(bo.hitRate), `${bo.hits} von ${bo.darts} Darts aufs Ziel-Doppel`)}
       ${h.tile('Durchgespielt', bo.finishedLegs ? `${bo.survived} / ${bo.finishedLegs}` : '–', 'Legs ohne Ausscheiden')}
       ${h.matchTiles(bo)}
-    </div>${h.trend(bo.history, 'Ø Endstand', 0)}${h.recent(bo.history, "Bob's-27", 'Ø Endstand', 0)}`,
+    </div>${h.trend(bo.legHistory, 'Ø Endstand', 0)}${h.recent(bo.history, "Bob's-27", 'Ø Endstand', 0)}`,
   },
   c121: {
     label: '121', group: 'training',
@@ -1105,28 +1144,32 @@ Object.assign(MODES, {
       ${h.tile('Checkout-Quote', pct(cc.rate), `${cc.checks} von ${cc.attempts} Versuchen`)}
       ${h.tile('Ø Darts je Check', num(cc.dartsPerCheck, 1))}
       ${h.matchTiles(cc)}
-    </div>${h.trend(cc.history, 'Checkout-Quote in %', 0)}${h.recent(cc.history, '121', 'Checkout-Quote', 0, ' %')}`,
+    </div>${h.trend(cc.legHistory, 'Checkout-Quote in %', 0)}${h.recent(cc.history, '121', 'Checkout-Quote', 0, ' %')}`,
   },
   gallery: {
     label: 'Shooting Gallery', group: 'training',
     opts: [
+      ['gaSet', 'Ziele', [['std', '121–130'], ['own', 'Eigene']]],
       ['gaOver', 'Überwerfen', [['under', 'Checkt'], ['exact', 'Bust']]],
       ['gaOut', 'Finish', [['single', 'Beliebig'], ['double', 'Double Out'], ['master', 'Master Out']]],
     ],
-    config: (s) => ({ over: s.gaOver, out: s.gaOut }),
+    config: (s) => ({ over: s.gaOver, out: s.gaOut, ...(s.gaSet === 'own' && gaList(s).length ? { targets: gaList(s) } : {}) }),
+    setupExtra: (s) => (s.gaSet === 'own' ? galleryPad(s) : ''),
+    setupCheck: (s) => (s.gaSet === 'own' && !gaList(s).length ? 'Tippe mindestens ein Ziel ein.' : ''),
     board: boardGallery,
     turnSum: ptsSum,
     homeScore: (st, p) => `${st.leg.score[p]} P · → ${st.leg.target[p]}`,
     col: ['Punkte', (ml) => ml.score],
-    bar: (st) => (st.turn ? `${st.leg.contenders ? 'Stechen' : `Versuch ${st.leg.rounds[st.current] + 1}<small>von ${GALLERY_COUNT}</small>`} · Ziel <b>${st.leg.target[st.current]}</b>` : ''),
+    bar: (st) => (st.turn ? `${st.leg.contenders ? 'Stechen' : `Versuch ${st.leg.rounds[st.current] + 1}<small>von ${st.leg.stage}</small>`} · Ziel <b>${st.leg.target[st.current]}</b>` : ''),
     overlaySub: (st, ev) => `<p class="ov-sub">${st.legResults.at(-1).scores[ev.p]} Punkte</p>`,
     stats: (ga, h) => `<div class="stats">
-      ${h.tile('Ø Punkte', num(ga.avgScore, 1), `${ga.finishedLegs} Legs, höchstens 120`)}
+      ${h.tile('Ø Punkte', num(ga.avgScore, 1), `${ga.finishedLegs} Legs mit 121–130, höchstens 120`)}
       ${h.tile('Bestwert', ga.bestScore ?? '–')}
       ${h.tile('Checkout-Quote', pct(ga.rate), `${ga.checks} von ${ga.attempts} Versuchen`)}
       ${h.tile('Ø Darts je Check', num(ga.dartsPerCheck, 1))}
       ${h.matchTiles(ga)}
-    </div>${h.trend(ga.history, 'Punkte', 0)}${h.recent(ga.history, 'Shooting-Gallery', 'Punkte', 0)}`,
+      ${ga.own ? h.tile('Eigene Ziele', ga.own, 'Spiele, nur in der Checkout-Quote') : ''}
+    </div>${h.trend(ga.legHistory, 'Punkte (121–130)', 0)}${h.recent(ga.history, 'Shooting-Gallery', 'Punkte (121–130)', 0)}`,
   },
   countup: {
     label: 'Count-Up', group: 'training',
@@ -1143,7 +1186,7 @@ Object.assign(MODES, {
       ${h.tile('Bestwert', c.bestScore ?? '–')}
       ${h.tile('Ø je Runde', num(c.ppr, 1), `${c.turns} Runden`)}
       ${h.matchTiles(c)}
-    </div>${h.trend(c.history, 'Punkte', 0)}${h.recent(c.history, 'Count-Up', 'Punkte', 0)}`,
+    </div>${h.trend(c.legHistory, 'Punkte', 0)}${h.recent(c.history, 'Count-Up', 'Punkte', 0)}`,
   },
   jdc: {
     label: 'JDC Challenge', group: 'training',
@@ -1167,10 +1210,11 @@ Object.assign(MODES, {
       ${h.tile('Ø Teil 1 · 2 · 3', j.partAvg.slice(1).map((v) => num(v, 0)).join(' · '))}
       ${h.tile('Shanghais', j.shanghais)}
       ${h.matchTiles(j)}
-    </div>${h.trend(j.history, 'Gesamtpunkte', 0)}${h.recent(j.history, 'JDC', 'Gesamtpunkte', 0)}`,
+    </div>${h.trend(j.legHistory, 'Gesamtpunkte', 0)}${h.recent(j.history, 'JDC', 'Gesamtpunkte', 0)}`,
   },
 });
 
 // Vorgabewerte aller Setup-Optionen, abgeleitet aus opts
-export const setupDefaults = () => Object.fromEntries(Object.values(MODES).flatMap((u) => u.opts.map(([k, , ch, def]) => [k, def ?? ch[0][0]])));
+// Dazu Eingaben außerhalb von opts (gaTargets: Liste der Shooting Gallery)
+export const setupDefaults = () => ({ ...Object.fromEntries(Object.values(MODES).flatMap((u) => u.opts.map(([k, , ch, def]) => [k, def ?? ch[0][0]]))), gaTargets: [] });
 export { MODES };

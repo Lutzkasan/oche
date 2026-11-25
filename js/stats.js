@@ -1,13 +1,18 @@
 // Statistiken entstehen aus denselben Replays wie das Spiel selbst. Neue Kennzahlen gelten damit rückwirkend.
 // Je Modus ein Eintrag in STATS: init() legt die Zähler an, add(acc, ctx) zählt ein Spiel, fin(acc) rechnet Quoten.
-// Gemeinsam für alle: matches, won, solo, legs, vsLegs, legsWon, darts, history (Verlauf je Match), optional bestLeg.
+// Gemeinsam für alle: matches, won, solo, legs, vsLegs, legsWon, darts, history (Wert je Match, Liste „Letzte Matches“),
+// legHistory (Wert je Leg, Verlauf, ab 0.10.0), optional bestLeg.
+// legHistory braucht keinen eigenen Code je Modus: playerStats ruft add je beendetem Leg noch einmal auf, mit einem
+// Ausschnitt des Spiels, der nur dieses Leg enthält (legSlice), und übernimmt den Wert, den add dabei einträgt.
+// Damit misst der Verlauf je Leg genau dieselbe Größe wie der Wert je Match.
 // Sieg-Wertung nur gegen Gegner (ab 0.7.1): matches, won, vsLegs und legsWon zählen Spiele mit mindestens zwei
 // Spielern. Ein Spiel allein hat keinen Gegner, es zählt als solo. Bis 0.7.0 galt der einzige Spieler als Sieger,
 // Trainingsmodi zeigten deshalb „12 / 12 gewonnen". legs bleibt die Zahl aller Legs (Nenner für Werte je Leg).
 import { replay } from './engine.js';
 import { followTry } from './rules/follow.js';
+import { galleryOwn } from './rules/gallery.js';
 
-const base = () => ({ matches: 0, won: 0, solo: 0, legs: 0, vsLegs: 0, legsWon: 0, darts: 0, history: [] });
+const base = () => ({ matches: 0, won: 0, solo: 0, legs: 0, vsLegs: 0, legsWon: 0, darts: 0, history: [], legHistory: [] });
 const legKey = (x) => x.setNo + '-' + x.legNo;
 const rate = (a, b) => (b ? a / b : null);
 const hitsOf = (ctx) => ctx.myDarts.filter((d) => d.hit).length;
@@ -80,9 +85,11 @@ const mprMode = {
 };
 
 export const STATS = {
+  // byStart (ab 0.10.0): dieselben Kennzahlen getrennt je Startwert (301, 501 …). „Bestes Leg“ ist nur je Startwert
+  // vergleichbar, ein 301-Leg braucht weniger Darts als ein 501-Leg.
   x01: {
     ownDarts: false, // X01 zählt nur Darts abgeschlossener Aufnahmen
-    init: () => ({ ...base(), points: 0, f9Pts: 0, f9Darts: 0, atDouble: 0, checkouts: 0, highOut: 0, bestLeg: null, t180: 0, t140: 0, t100: 0, high: 0, doubles: {} }),
+    init: () => ({ ...base(), byStart: {}, points: 0, f9Pts: 0, f9Darts: 0, atDouble: 0, checkouts: 0, highOut: 0, bestLeg: null, t180: 0, t140: 0, t100: 0, high: 0, doubles: {} }),
     add(x, { st, p, myDarts, ...ctx }) {
       let gPts = 0, gDarts = 0;
       for (const t of st.turns) {
@@ -145,9 +152,10 @@ export const STATS = {
   hare: hitMode({
     init: () => ({ hareLegs: 0, hareWins: 0, houndLegs: 0, houndWins: 0 }),
     add(a, { st, p }) {
-      // Hase ist, wer das Leg anwirft. Der Anwurf wechselt mit jedem Leg (Engine: legStarter + 1).
+      // Hase ist, wer das Leg anwirft. Ab 0.10.0 steht der Anwurf im Leg-Ergebnis (starter). Ältere Ergebnisse
+      // gibt es nicht, das Replay rechnet sie neu. i % n gilt nur bis Regelversion 1 und war im Satzmodus ab rv 2 falsch.
       st.legResults.forEach((r, i) => {
-        const isHare = i % st.n === p;
+        const isHare = (r.starter ?? i % st.n) === p;
         if (isHare) { a.hareLegs++; if (r.winner === p) a.hareWins++; } else { a.houndLegs++; if (r.winner === p) a.houndWins++; }
       });
     },
@@ -297,10 +305,13 @@ export const STATS = {
     fin(cc) { cc.rate = rate(cc.checks, cc.attempts); cc.dartsPerCheck = rate(cc.checkDarts, cc.checks); },
   },
 
+  // Eigene Ziele (ab 0.10.0): Punkte hängen an der Zielliste, eine leichte Liste gäbe höhere Punkte.
+  // ANNAHME: Ø Punkte, Bestwert und Verlauf zählen deshalb nur Spiele mit 121–130, die Checkout-Quote zählt alle.
   gallery: {
-    init: () => ({ ...ends(), checks: 0, attempts: 0, checkDarts: 0 }),
+    init: () => ({ ...ends(), checks: 0, attempts: 0, checkDarts: 0, own: 0 }),
     add(ga, ctx) {
-      addEnds(ga, ctx);
+      if (galleryOwn(ctx.st.base)) ga.own++;
+      else addEnds(ga, ctx);
       const checks = ctx.myDarts.filter((d) => d.checkout);
       ga.checks += checks.length;
       ga.attempts += checks.length + ctx.myDarts.filter((d) => d.fail).length;
@@ -399,6 +410,43 @@ export const STATS = {
   },
 };
 
+// Ein beendetes Leg als eigenes kleines Spiel: nur seine Darts, Aufnahmen und sein Ergebnis, seine config.
+// Zeitpunkt ist der letzte Wurf des Legs (Darts ohne Zeit: Spielende).
+function legSlice(ctx, r) {
+  const key = legKey(r);
+  const darts = ctx.st.darts.filter((d) => legKey(d) === key);
+  const turns = ctx.st.turns.filter((t) => legKey(t) === key);
+  const at = Math.max(0, ...darts.map((x) => x.d.t || 0)) || ctx.g.finishedAt;
+  return {
+    ...ctx,
+    g: { ...ctx.g, finishedAt: at },
+    st: { ...ctx.st, cfg: r.cfg, darts, turns, legResults: [r] },
+    myDarts: darts.filter((d) => d.p === ctx.p),
+    myTurns: turns.filter((t) => t.p === ctx.p),
+    finished: true,
+    won: ctx.won === null ? null : r.winner === ctx.p,
+  };
+}
+
+// Zählt ein Spiel in die Zähler s eines Modus (oder eines Startwerts bei X01)
+function tally(s, def, ctx, solo) {
+  const { st, p, finished, won } = ctx;
+  if (finished) {
+    if (solo) s.solo++;
+    else { s.matches++; if (won) s.won++; }
+  }
+  for (const r of st.legResults) {
+    s.legs++;
+    if (!solo) s.vsLegs++;
+    if (r.winner === p) {
+      if (!solo) s.legsWon++;
+      if ('bestLeg' in s && (s.bestLeg === null || r.darts[p] < s.bestLeg)) s.bestLeg = r.darts[p];
+    }
+  }
+  if (def.ownDarts !== false) s.darts += ctx.myDarts.length;
+  def.add(s, ctx);
+}
+
 export function playerStats(playerId, games) {
   const out = Object.fromEntries(Object.entries(STATS).map(([m, s]) => [m, s.init()]));
   // Trefferbild über alle übergebenen Spiele. Schlüssel 's-m', z. B. '20-3' = T20. Daneben zählt extra.
@@ -413,32 +461,31 @@ export function playerStats(playerId, games) {
     const finished = g.status === 'finished';
     const solo = g.playerIds.length === 1;
     const won = solo ? null : st.winner === p; // null = ohne Gegner, weder Sieg noch Niederlage
-    if (finished) {
-      if (solo) s.solo++;
-      else { s.matches++; if (won) s.won++; }
-    }
-    for (const r of st.legResults) {
-      s.legs++;
-      if (!solo) s.vsLegs++;
-      if (r.winner === p) {
-        if (!solo) s.legsWon++;
-        if ('bestLeg' in s && (s.bestLeg === null || r.darts[p] < s.bestLeg)) s.bestLeg = r.darts[p];
-      }
-    }
     const myDarts = st.darts.filter((d) => d.p === p);
-    if (def.ownDarts !== false) s.darts += myDarts.length;
     for (const { d } of myDarts) {
       board.total++;
       if (d.s === 0) board.miss++;
       else board.counts[d.s + '-' + d.m] = (board.counts[d.s + '-' + d.m] || 0) + 1;
     }
-    def.add(s, { g, st, p, myDarts, myTurns: st.turns.filter((t) => t.p === p), finished, won });
+    const ctx = { g, st, p, myDarts, myTurns: st.turns.filter((t) => t.p === p), finished, won };
+    tally(s, def, ctx, solo);
+    if (g.mode === 'x01') tally(s.byStart[g.config.start] ||= def.init(), def, ctx, solo);
+    // Verlauf je Leg: nur aus beendeten Spielen, wie bisher der Verlauf je Match
+    if (finished) {
+      for (const r of st.legResults) {
+        const tmp = def.init();
+        def.add(tmp, legSlice(ctx, r));
+        if (tmp.history.length) s.legHistory.push(tmp.history[0]);
+      }
+    }
   }
 
   for (const [m, def] of Object.entries(STATS)) {
     def.fin(out[m]);
     out[m].history.sort((u, v) => u.at - v.at);
+    out[m].legHistory.sort((u, v) => u.at - v.at);
   }
+  for (const x of Object.values(out.x01.byStart)) STATS.x01.fin(x);
   return { ...out, board };
 }
 

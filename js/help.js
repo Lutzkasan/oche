@@ -23,6 +23,7 @@ export const TERMS = {
   Break: 'Beim Snooker die Punkte, die du hintereinander ohne Fehlwurf sammelst.',
   Foul: 'Beim Snooker ein Regelverstoß. Der Nächste bekommt Strafpunkte, dein Break endet.',
   Ansage: 'Beim Snooker tippst du vor dem Wurf auf die Farbe, die du treffen willst.',
+  Vorwahl: 'Das Tastenfeld wählt Double bzw. Triple schon vor, weil in diesem Spiel nur dieser Ring zählt. Hast du ein Single getroffen, tippe die Taste weg und dann die Zahl. Die Vorwahl kommt mit jedem Dart wieder. 25 und Bull haben eigene Tasten.',
 };
 
 export const HELP = {
@@ -56,14 +57,14 @@ export const HELP = {
     win: 'Wer keine Leben mehr hat, ist raus. Der Letzte mit Leben gewinnt.',
     opts: {
       kLives: 'Wie viele Leben jeder hat.',
-      kZone: 'Nur Doppel: Nur das Doppel der Zahl zählt, als ein Treffer. Ganzes Feld: Jeder Treffer zählt, Single 1, Double 2, Triple 3 Leben.',
+      kZone: 'Nur Doppel: Nur das Doppel der Zahl zählt, als ein Treffer. Die Vorwahl steht dann auf Double. Ganzes Feld: Jeder Treffer zählt, Single 1, Double 2, Triple 3 Leben. Bist du noch kein Killer und triffst deine Zahl mit Double oder Triple, macht dich der erste Treffer zum Killer, die übrigen verfallen.',
       kSelf: 'Kostet Leben: Triffst du als Killer deine eigene Zahl, verlierst du selbst ein Leben. Zählt nicht: Eigentreffer haben keine Folgen.',
     },
     example: 'Du hast die 7 und triffst D7: Du bist Killer. Danach triffst du D12. Wer die 12 hat, verliert ein Leben.',
   },
   blindkiller: {
     goal: 'Bleib als Letzter übrig, obwohl niemand weiß, welche Zahl wem gehört.',
-    turn: 'Zu Beginn jedes Legs bekommt jeder verdeckt eine neue Zahl. Die Zahlen im Spiel stehen auf dem Brett, ihre Besitzer nicht. Alle werfen auf beliebige Doppel.',
+    turn: 'Zu Beginn jedes Legs bekommt jeder verdeckt eine neue Zahl. Die Zahlen im Spiel stehen auf dem Brett, ihre Besitzer nicht. Alle werfen auf beliebige Doppel. Die Vorwahl steht auf Double.',
     score: 'Jedes Doppel auf eine Zahl im Spiel kostet ihren Besitzer ein Leben. Das gilt auch für deine eigene Zahl. Mit „Meine Zahl ansehen" schaust du nach, die anderen schauen kurz weg. Einen Killer-Status gibt es hier nicht.',
     win: 'Wer keine Leben mehr hat, ist raus, und seine Zahl wird aufgedeckt. Der Letzte gewinnt.',
     opts: {
@@ -296,13 +297,13 @@ export const HELP = {
     opts: {
       atcBull: 'Mit Bull musst du zusätzlich das Bull treffen, aufsteigend als letztes Ziel.',
       atcOrder: 'Aufsteigend: 1 bis 20, dann Bull. Absteigend: erst Bull, dann 20 bis 1. Zufällig: Alle Ziele kommen in einer ausgelosten Reihenfolge, Bull irgendwo dazwischen. Jedes Leg lost neu aus. Das Brett zeigt die Folge.',
-      atcZone: 'Jedes Feld: Single, Double und Triple zählen gleich. D/T springt: Double bringt dich zwei Ziele weiter, Triple drei. Über Bull springst du nicht hinweg, Bull musst du selbst treffen. Nur Doppel bzw. Nur Triple: Nur dieser Ring zählt, beim Bull nur das Bull.',
+      atcZone: 'Jedes Feld: Single, Double und Triple zählen gleich. D/T springt: Double bringt dich zwei Ziele weiter, Triple drei. Über Bull springst du nicht hinweg, Bull musst du selbst treffen. Nur Doppel bzw. Nur Triple: Nur dieser Ring zählt, beim Bull nur das Bull. Die Vorwahl steht dann auf diesem Ring.',
     },
     example: 'Du stehst auf 5. Mit „D/T springt" bringt dich T5 auf die 8.',
   },
   dbl: {
     goal: 'Triff jedes Doppel einmal, mit möglichst wenigen Darts.',
-    turn: 'Drei Darts auf dein aktuelles Doppel. Erst ein Treffer bringt dich zum nächsten.',
+    turn: 'Drei Darts auf dein aktuelles Doppel. Erst ein Treffer bringt dich zum nächsten. Die Vorwahl steht auf Double.',
     score: 'Nur das Doppel der Zielzahl zählt. Die Statistik misst, wie viele Darts du je Doppel brauchst.',
     win: 'Wer zuerst alle Doppel hat, gewinnt. Allein zählen deine Darts.',
     opts: {
@@ -313,7 +314,7 @@ export const HELP = {
   },
   chase: {
     goal: 'Triff T10 bis T20 der Reihe nach, dann 25, dann Bull.',
-    turn: 'Drei Darts auf dein aktuelles Ziel. Jeder Treffer bringt dich ein Ziel weiter.',
+    turn: 'Drei Darts auf dein aktuelles Ziel. Jeder Treffer bringt dich ein Ziel weiter. Die Vorwahl steht auf Triple.',
     score: 'Nur das genaue Feld zählt. Bei T15 zählen weder 15 noch D15. Bei 25 zählt das Bull nicht und umgekehrt.',
     win: 'Wer zuerst durch ist, gewinnt.',
     opts: { chLaps: '3 (Three-headed): Du spielst die ganze Folge dreimal hintereinander.' },
@@ -321,7 +322,7 @@ export const HELP = {
   },
   bobs: {
     goal: 'Doppeltraining: Bring deine 27 Startpunkte durch alle Doppel.',
-    turn: 'Runde 1 zielt auf D1, Runde 2 auf D2 und so weiter bis D20, auf Wunsch zum Schluss Bull.',
+    turn: 'Runde 1 zielt auf D1, Runde 2 auf D2 und so weiter bis D20, auf Wunsch zum Schluss Bull. Die Vorwahl steht auf Double.',
     score: 'Jeder Treffer aufs Ziel-Doppel bringt dessen Wert. Trifft keiner deiner drei Darts, wird der Wert abgezogen.',
     win: 'Bei mehreren Spielern liegt vorn, wer weiter kommt, dann der höhere Stand. Gleichstand geht ins Stechen auf Bull.',
     opts: {
@@ -344,11 +345,12 @@ export const HELP = {
     example: 'Ziel 121: T20, T11, D14 ist ein Check in drei Darts. Dein nächstes Ziel ist 122 und 121 ist gesichert.',
   },
   gallery: {
-    goal: 'Checke 121 bis 130 nacheinander mit möglichst wenigen Darts.',
+    goal: 'Checke 121 bis 130 oder deine eigenen Ziele nacheinander mit möglichst wenigen Darts.',
     turn: 'Für jede Zahl hast du höchstens 9 Darts, also 3 Runden. Du zählst wie in X01 herunter. Wann die Zahl gecheckt ist, legen die Einstellungen fest.',
     score: 'Punkte je Check: mit 3 Darts 12, mit 4 Darts 8, mit 5 Darts 6, mit 6 Darts 5, mit 7 Darts 3, mit 8 Darts 2, mit 9 Darts 1. Ohne Check gibt es 0 und es geht mit der nächsten Zahl weiter. Ein Bust setzt dich auf den Stand vor der Runde zurück.',
-    win: 'Die höchste Summe nach 10 Zahlen gewinnt, höchstens 120. Gleichstand geht ins Stechen mit der nächsten Zahl.',
+    win: 'Die höchste Summe nach allen Zielen gewinnt (bei 121–130 höchstens 120). Gleichstand geht ins Stechen mit dem letzten Ziel + 1.',
     opts: {
+      gaSet: '121–130: die zehn Zahlen der Reihe nach. Eigene: Du tippst im Setup bis zu 20 Ziele zwischen 2 und 501 ins Ziffernfeld, gespielt wird in dieser Reihenfolge. Spiele mit eigenen Zielen zählen in der Statistik nur bei der Checkout-Quote, weil ihre Punkte nicht mit 121–130 vergleichbar sind.',
       gaOver: 'Checkt: Die Zahl ist gecheckt, sobald dein Rest 0 erreicht oder darunter fällt. Bust: Nur genau 0 checkt, wer überwirft, hat einen Bust.',
       gaOut: 'Beliebig: Jeder Dart darf checken. Double Out: Der checkende Dart muss ein Doppel sein, Bull zählt als Doppel. Master Out: Doppel oder Triple. Checkt ein anderer Dart, ist das ein Bust.',
     },

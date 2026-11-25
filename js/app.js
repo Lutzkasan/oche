@@ -3,13 +3,14 @@ import { replay, RULES, matchLine, canStop, prepareConfig } from './engine.js';
 import { playerStats, filterGames, rolling, hasPlay, hasDarts, gameTime, replayCached } from './stats.js';
 import { lineChart, bindCharts, boardHeatmap, fieldLabel } from './charts.js';
 import { HELP, TERMS } from './help.js';
-import { GROUPS, setupDefaults } from './modes.js';
+import { GROUPS, setupDefaults, gaList } from './modes.js';
+import { TARGETS_MIN, TARGETS_MAX, TARGETS_COUNT } from './rules/gallery.js';
 import {
   S, MODES, COLORS, esc, uid, num, pct, day, player, pcolor, pname,
   dialog, toast, flash, clearFlash, seg, stepper,
 } from './ui.js';
 
-export const APP_VERSION = '0.9.0';
+export const APP_VERSION = '0.10.0';
 export const BUILD = 'dev'; // setzt tools/build.mjs beim Deploy
 const BACKUP_DAYS = 7;
 // Alles, was die App außerhalb von IndexedDB ablegt. Zurücksetzen löscht genau diese Schlüssel.
@@ -47,6 +48,7 @@ function paint() {
 // neu gezeichnet. Liegt es an keinem Spiel, erscheint eine Fehlerseite mit Weg zur Sicherung.
 // Die Form der Einträge prüft schon loadAll (db.js, validGame). Hier landet, was erst beim Nachspielen auffällt.
 function render(quiet = false) {
+  syncHistory();
   let err;
   // Höchstens drei Anläufe: Spiele aus der Prüfung beiseitelegen, dann notfalls das offene Spiel, dann aufgeben.
   for (let i = 0; i < 3; i++) {
@@ -84,6 +86,23 @@ function setAside(painting = false, quiet = false) {
   if (!quiet) toast(`${bad.length === 1 ? '1 Spiel lässt' : bad.length + ' Spiele lassen'} sich nicht lesen und ${bad.length === 1 ? 'wird' : 'werden'} übersprungen. Mehr unter „Daten".`);
   return true;
 }
+
+// Zurück-Geste (ab 0.10.0). Bis 0.9.0 legte die App keine Einträge im Browserverlauf an, die Geste hatte in der App
+// kein Ziel und schloss sie. Jetzt gilt: Die Startseite ist der unterste Eintrag, jede andere Ansicht (auch das
+// Spiel) liegt genau einen Eintrag darüber. Wechsel zwischen zwei Unteransichten (Setup → Spiel) ersetzen keinen
+// Eintrag und legen keinen neuen an. Die Geste führt so von jeder Ansicht zur Startseite und von dort aus der App.
+// Ein offener Dialog schließt sich bei der Geste selbst, ohne den Verlauf zu berühren (Chrome ab 120, close request).
+// Ein Spiel ist nach jedem Dart gespeichert, die Geste verliert nichts und nimmt keinen Dart zurück.
+let popping = false; // history.back() aus der App heraus: das folgende popstate ist schon erledigt
+const inner = () => history.state?.oche === 'inner';
+function syncHistory() {
+  if (S.view === 'home') { if (inner()) { popping = true; history.back(); } }
+  else if (!inner()) history.pushState({ oche: 'inner' }, '');
+}
+window.addEventListener('popstate', () => {
+  if (popping) { popping = false; return; }
+  if (S.view !== 'home') A.nav('home');
+});
 
 function fatal(e) {
   $app.dataset.view = 'error';
@@ -209,12 +228,14 @@ function viewSetup() {
   const ui = MODES[s.mode], rule = RULES[s.mode];
   const minP = rule.minPlayers || 1, maxP = rule.maxPlayers || Infinity;
   const n = s.players.length;
-  const why = n && n < minP ? `${ui.label} braucht mindestens ${minP} Spieler.` : n > maxP ? `${ui.label} geht mit höchstens ${maxP} Spielern.` : '';
+  const why = (n && n < minP ? `${ui.label} braucht mindestens ${minP} Spieler.` : n > maxP ? `${ui.label} geht mit höchstens ${maxP} Spielern.` : '')
+    || ui.setupCheck?.(s) || '';
   return `${topbar('Neues Spiel')}<main class="page setup">
     <section class="card modes"><label>Spiel</label>${modeGrid(s.mode)}</section>
     <div class="setup-side"><section class="card">
       <div class="opt-head"><h3>${esc(ui.label)}</h3><button class="btn sm" data-a="help" data-v="${s.mode}">Regeln</button></div>
       ${ui.opts.filter(([, , , , when]) => !when || when(s)).map(([k, label, choices]) => `<label>${label}</label>${seg(k, choices)}`).join('')}
+      ${ui.setupExtra?.(s) || ''}
       <div class="two"><div><label>Legs</label>${stepper('legs', 1, 11, (v) => `First to ${v}`)}</div>
       <div><label>Sets</label>${stepper('sets', 1, 7, (v) => (v === 1 ? 'Ohne Sets' : `First to ${v}`))}</div></div></section>
     <section class="card"><label>Spieler <small>in Wurfreihenfolge antippen${maxP < Infinity ? ` · höchstens ${maxP}` : ''}</small></label>
@@ -222,7 +243,7 @@ function viewSetup() {
         const i = s.players.indexOf(p.id);
         return `<button class="chip ${i >= 0 ? 'on' : ''}" style="--pc:${p.color}" data-a="togglePlayer" data-v="${p.id}">${i >= 0 ? `<em>${i + 1}</em>` : ''}${esc(p.name)}</button>`;
       }).join('')}<button class="chip add" data-a="quickPlayer">+ Neuer Spieler</button></div></section>
-    <button class="btn primary xl" data-a="start" ${n >= minP && n <= maxP ? '' : 'disabled'}>Spiel starten</button>
+    <button class="btn primary xl" data-a="start" ${n >= minP && n <= maxP && !ui.setupCheck?.(s) ? '' : 'disabled'}>Spiel starten</button>
     ${why ? `<p class="muted hint center">${why}</p>` : ''}</div>
   </main>`;
 }
@@ -361,7 +382,7 @@ function gamesSection(games) {
 function trend(history, label, decimals) {
   if (!history.length) return '';
   const win = 5;
-  return `<h3 class="sec">Verlauf <small>${label} je Match</small></h3>
+  return `<h3 class="sec">Verlauf <small>${label} je Leg</small></h3>
     <div class="card chart-card">${lineChart(history, rolling(history.map((e) => e.value), win), { decimals, window: win })}</div>`;
 }
 
@@ -512,8 +533,8 @@ function saveGame() {
     g.winnerId = null;
     g.finishedAt = null;
   }
-  render();
   persist('games', g);
+  render();
 }
 
 // Ereignis des letzten Darts oder der letzten Aufnahme als Flash. Gilt für Darts und für „Fertig".
@@ -570,14 +591,18 @@ function addEntry(entry) {
   }
 }
 
+// Vorgewählter Multiplikator für den nächsten Dart (modes.js, pre). Ohne Vorwahl Single.
+const preMult = () => (S.st && !S.st.finished && MODES[S.game.mode].pre?.(S.st)) || 1;
+
 function throwDart(s, mOverride) {
   if (!S.game || S.st.finished) return;
-  let m = mOverride || (s === 0 ? 1 : S.mult);
-  if (s === 25 && m === 3) m = 2; // kein Triple-Bull
+  // Die Taste 25 gibt immer 25, Bull hat eine eigene Taste (mOverride 2). Bis 0.9.0 machte Double oder Triple
+  // aus 25 ein Bull. Mit der Vorwahl (ab 0.10.0) wäre ein Treffer auf 25 dann still als Bull gezählt worden.
+  const m = mOverride || (s === 0 || s === 25 ? 1 : S.mult);
   const extra = MODES[S.game.mode].entry?.(S.st, s, m) ?? {};
   if (typeof extra === 'string') { toast(extra); return; }
   if (!addEntry({ s, m, ...extra, t: Date.now() })) return;
-  S.mult = 1;
+  S.mult = preMult();
   S.call = null;
   navigator.vibrate?.(12);
   saveGame();
@@ -591,24 +616,26 @@ function startGame(mode, config, playerIds) {
   const cfg = prepareConfig(mode, prepare ? prepare(config, playerIds.length) : config, playerIds.length);
   const g = { id: uid(), mode, config: cfg, playerIds, darts: [], status: 'active', winnerId: null, createdAt: now, updatedAt: now, finishedAt: null };
   S.games.push(g);
-  openGame(g);
   persist('games', g);
+  openGame(g);
 }
 
 function openGame(g) {
   S.game = g;
-  S.mult = 1;
   S.call = null;
   S.overlaySeen = g.darts.length;
   recompute();
+  S.mult = preMult();
   clearFlash();
   S.view = 'game';
   render();
   wake(true);
 }
 
-// Zustand zuerst im Speicher ändern und anzeigen, dann im Hintergrund sichern.
+// Zustand zuerst im Arbeitsspeicher ändern, dann das Speichern anstoßen, dann zeichnen. Gewartet wird nicht:
 // Würde erst nach dem Speichern neu gezeichnet, ersetzt das Rendern Eingaben, die in der Zwischenzeit getippt wurden.
+// Angestoßen wird vor dem Zeichnen (ab 0.10.0), damit die Transaktion sofort läuft (db.js, tx). IndexedDB kopiert
+// das Objekt beim Aufruf, spätere Änderungen gehören deshalb vor persist.
 function persist(store, obj) {
   db.put(store, obj).catch((e) => toast('Speichern fehlgeschlagen: ' + e.message));
 }
@@ -621,11 +648,14 @@ function setFlag(store, obj, key, on) {
   persist(store, obj);
 }
 
-function addPlayer(name, color) {
+// Ohne Farbe bekommt das Profil die nächste freie (nextColor). Bis 0.9.0 vergab „+ Neuer Spieler“ im Setup
+// die Farbe per Zähler und traf damit oft eine Farbe, die schon ein sichtbares Profil trug.
+function addPlayer(name, color = nextColor()) {
   const now = Date.now();
   const p = { id: uid(), name, color, archived: false, createdAt: now, updatedAt: now };
   S.players.push(p);
   persist('players', p);
+  S.newColor = nextColor();
   return p;
 }
 
@@ -671,6 +701,23 @@ const A = {
   setup: (v, el) => { const k = el.dataset.k; S.setup[k] = isNaN(v) ? v : Number(v); saveSetup(); render(); },
   step: (v, el) => { const k = el.dataset.k; S.setup[k] += Number(v); saveSetup(); render(); },
   help: (mode) => showHelp(mode),
+  // Shooting Gallery, eigene Ziele: Ziffernfeld. S.gaInput ist die laufende Eingabe, nur im Arbeitsspeicher.
+  gaKey: (k) => {
+    const cur = S.gaInput || '';
+    if (k === 'del') S.gaInput = cur.slice(0, -1);
+    else if (k === 'add') {
+      const v = Number(cur);
+      if (!cur) return;
+      if (v < TARGETS_MIN || v > TARGETS_MAX) { toast(`Ziele gehen von ${TARGETS_MIN} bis ${TARGETS_MAX}.`); S.gaInput = ''; render(); return; }
+      const l = gaList(S.setup);
+      if (l.length >= TARGETS_COUNT) return;
+      S.setup.gaTargets = [...l, v];
+      S.gaInput = '';
+      saveSetup();
+    } else if (cur.length < 3 && !(cur === '' && k === '0')) S.gaInput = cur + k;
+    render();
+  },
+  gaRemove: (i) => { S.setup.gaTargets = gaList(S.setup).filter((_, j) => j !== Number(i)); saveSetup(); render(); },
   togglePlayer: (id) => {
     const l = S.setup.players, i = l.indexOf(id);
     if (i >= 0) l.splice(i, 1); else l.push(id);
@@ -679,7 +726,7 @@ const A = {
   quickPlayer: async () => {
     const r = await dialog({ title: 'Neuer Spieler', input: '', buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Anlegen', value: 'ok', primary: true }] });
     if (r.btn !== 'ok' || !r.value) return;
-    const p = addPlayer(r.value, COLORS[S.players.length % COLORS.length]);
+    const p = addPlayer(r.value);
     S.setup.players.push(p.id); saveSetup(); render();
   },
   editPlayer: async (id) => {
@@ -688,7 +735,7 @@ const A = {
     const r = await dialog({ title: 'Spieler bearbeiten', cls: 'edit-player', html: swatches(p.color, 'pickEditColor'), input: p.name, buttons: [{ label: 'Abbrechen', value: 'x' }, { label: 'Speichern', value: 'ok', primary: true }] });
     if (r.btn !== 'ok' || !r.value) return;
     p.name = r.value; p.color = S.editColor; p.updatedAt = Date.now();
-    render(); persist('players', p);
+    persist('players', p); S.newColor = nextColor(); render();
   },
   // Profil mit Spielen: archivieren (umkehrbar, alle Spiele bleiben, auch für Mitspieler).
   // Profil ohne Spiele: löschen. Gelöscht wird über einen Lösch-Vermerk, damit eine ältere Sicherung es nicht zurückbringt.
@@ -705,10 +752,12 @@ const A = {
     saveSetup();
     if (used) setFlag('players', p, 'archived', true);
     else { S.players = S.players.filter((x) => x.id !== id); db.remove('players', id).catch((e) => toast('Löschen fehlgeschlagen: ' + e.message)); }
+    S.newColor = nextColor();
     render();
   },
   restorePlayer: (id) => {
     setFlag('players', player(id), 'archived', false);
+    S.newColor = nextColor();
     render();
   },
   // Endgültig: Lösch-Vermerk statt Profil. Die Spiele bleiben, damit die Statistik der Mitspieler stimmt.
@@ -753,7 +802,7 @@ const A = {
   stop: () => {
     if (!S.game || !canStop(S.st)) return;
     if (!addEntry({ s: 0, m: 0, stop: true, t: Date.now() })) return;
-    S.mult = 1;
+    S.mult = preMult();
     saveGame();
     announce();
   },
@@ -767,10 +816,10 @@ const A = {
   undo: () => {
     if (!S.game.darts.length) return;
     S.game.darts.pop();
-    S.mult = 1;
     S.call = null;
     S.overlaySeen = S.game.darts.length;
     recompute();
+    S.mult = preMult();
     saveGame();
   },
   dismiss: () => { S.overlaySeen = S.game.darts.length; render(); },
@@ -866,7 +915,6 @@ document.addEventListener('submit', async (e) => {
   const name = e.target.name.value.trim();
   if (!name) return;
   addPlayer(name, S.newColor);
-  S.newColor = nextColor();
   render();
 });
 

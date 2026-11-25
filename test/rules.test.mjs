@@ -1067,7 +1067,7 @@ ok('Spielerzahl je Modus', () => {
 
 ok('Sicherung: unbekannter Modus oder neueres Schema wird abgelehnt', async () => {
   const base = { app: 'oche', players: [], games: [] };
-  assert.equal(SCHEMA, 10);
+  assert.equal(SCHEMA, 11);
   await assert.rejects(importAll({ ...base, schema: 99 }), /neueren App-Version/);
   await assert.rejects(importAll({ ...base, schema: SCHEMA, games: [{ id: 'g', mode: 'darts9000' }] }), /darts9000/);
 });
@@ -1555,6 +1555,75 @@ ok('Prüfung: Ansage im Dart-Eintrag nur mit gültigem Feld', () => {
   assert.equal(validGame(g(25)), true);
   assert.equal(validGame(g(30)), false);
   assert.equal(validGame(g('<b>')), false);
+});
+
+
+// ---------- 0.10.0 ----------
+ok('Satzmodus: Anwurf ab Regelversion 2 je Satz, bis rv 1 je Leg über das Match', () => {
+  // Satz 1 endet 2:0 nach zwei Legs (Anwurf 0, dann 1). Satz 2 wirft ab rv 2 Spieler 1 an, bis rv 1 Spieler 0.
+  const darts = '1 D20  - - - 1 D20';
+  const neu = replay(game('x01', { start: 41, in: 'single', out: 'double', legs: 2, sets: 2, rv: 2 }, 2, darts));
+  assert.equal(neu.setNo, 2); assert.equal(neu.current, 1); assert.equal(neu.legStarter, 1);
+  const alt = replay(game('x01', { start: 41, in: 'single', out: 'double', legs: 2, sets: 2 }, 2, darts));
+  assert.equal(alt.setNo, 2); assert.equal(alt.current, 0);
+  // Im Satz wechselt der Anwurf weiter je Leg: Leg 2 von Satz 2 wirft Spieler 0 an
+  const neu2 = replay(game('x01', { start: 41, in: 'single', out: 'double', legs: 2, sets: 2, rv: 2 }, 2, darts + '  1 D20'));
+  assert.equal(neu2.current, 0);
+  // Drei Spieler: Satz-Anwurf rückt reihum weiter
+  const drei = replay(game('x01', { start: 41, in: 'single', out: 'double', legs: 1, sets: 3, rv: 2 }, 3, '1 D20  - - - 1 D20'));
+  assert.equal(drei.setNo, 3); assert.equal(drei.current, 2);
+});
+
+ok('Cut-Throat: fremde Punkte machen den Spieler mit allem zu sofort zum Sieger (rv 2)', () => {
+  const darts = 'T20 T19 T18  T17 T17 -  - - -  T17 T16 T15  - - -  - - -  BULL BULL -  - - -  T16 T16';
+  const neu = replay(game('cricket', { variant: 'cutthroat', rv: 2 }, 3, darts));
+  assert.equal(neu.finished, true); assert.equal(neu.winner, 0);
+  assert.deepEqual(neu.legResults[0].scores, [51, 73, 76]);
+  assert.equal(neu.turns.at(-1).darts.length, 2); // Aufnahme endet mit dem entscheidenden Dart
+  const alt = replay(game('cricket', { variant: 'cutthroat' }, 3, darts));
+  assert.equal(alt.finished, false); assert.equal(alt.current, 2);
+  // Standard-Cricket bleibt unberührt: dort entscheidet nur der eigene Treffer
+  const std = replay(game('cricket', { variant: 'standard', rv: 2 }, 3, darts));
+  assert.equal(std.finished, false);
+});
+
+ok('Statistik: Verlauf je Leg und X01 je Startwert', () => {
+  // Match first to 2 auf 41: zwei Legs, Spieler 0 gewinnt beide. Dazu ein Spiel auf 61 allein.
+  const g1 = done({ ...game('x01', { start: 41, in: 'single', out: 'double', legs: 2 }, 2, '1 D20  - - - 1 D20'), id: 'a', winnerId: 'p0', finishedAt: 10 });
+  const R = playerStats('p0', [g1]);
+  assert.equal(R.x01.history.length, 1); assert.equal(R.x01.legHistory.length, 2);
+  assert.equal(R.x01.legHistory[0].won, true);
+  assert.equal(Math.round(R.x01.legHistory[0].value * 10), 615); // 41 Punkte in 2 Darts = 61,5 Ø
+  const g3 = done({ ...game('x01', { start: 61, in: 'single', out: 'double' }, 1, 'T7 D20'), id: 'c', finishedAt: 30 });
+  const R2 = playerStats('p0', [g1, g3]);
+  assert.deepEqual(Object.keys(R2.x01.byStart).sort(), ['41', '61']);
+  assert.equal(R2.x01.byStart[41].bestLeg, 2); assert.equal(R2.x01.byStart[41].matches, 1);
+  assert.equal(R2.x01.byStart[61].solo, 1); assert.equal(R2.x01.legs, 3);
+  assert.equal(Math.round(R2.x01.byStart[61].avg * 10), 915);
+  // Hare and Hounds: Hase je Leg aus dem Leg-Ergebnis (starter)
+  const st = replay(game('x01', { start: 41, in: 'single', out: 'double', legs: 2, sets: 2, rv: 2 }, 2, '1 D20  - - - 1 D20'));
+  assert.deepEqual(st.legResults.map((r) => r.starter), [0, 1]);
+});
+
+ok('Shooting Gallery: eigene Ziele der Reihe nach, Stechen mit letztem Ziel + 1, Statistik ohne Punkte', async () => {
+  const GA = (targets) => ({ over: 'exact', out: 'double', targets });
+  let st = replay(game('gallery', GA([40, 61]), 1, 'D20  T7 D20'));
+  assert.equal(st.leg.stage, 2); assert.equal(st.finished, true);
+  assert.deepEqual(st.legResults[0].scores, [24]);
+  // Zwei Spieler gleich → Stechen auf das letzte Ziel + 1
+  st = replay(game('gallery', GA([40]), 2, 'D20  D20'));
+  assert.ok(st.leg.contenders); assert.deepEqual(st.leg.target, [41, 41]);
+  // Ohne Liste wie bisher 121 bis 130
+  st = replay(game('gallery', { over: 'exact', out: 'double' }, 1, ''));
+  assert.equal(st.leg.target[0], 121); assert.equal(st.leg.stage, 10);
+  const ga = playerStats('p0', [done(game('gallery', GA([40, 61]), 1, 'D20  T7 D20'))]).gallery;
+  assert.equal(ga.own, 1); assert.equal(ga.finishedLegs, 0); assert.equal(ga.checks, 2); assert.equal(ga.avgScore, null);
+  const { MODES, gaList } = await import('../js/modes.js');
+  assert.deepEqual(gaList({ gaTargets: [1, 2, 501, 502, 'x', 60.5, 100] }), [2, 501, 100]);
+  assert.deepEqual(MODES.gallery.config({ gaSet: 'own', gaTargets: [], gaOver: 'exact', gaOut: 'double' }), { over: 'exact', out: 'double' });
+  assert.equal(MODES.gallery.setupCheck({ gaSet: 'own', gaTargets: [] }) !== '', true);
+  const cfg = MODES.gallery.config({ gaSet: 'own', gaTargets: [87, 64], gaOver: 'under', gaOut: 'single' });
+  assert.deepEqual(cfg.targets, [87, 64]); assert.equal(validConfig(cfg), true);
 });
 
 await Promise.all(pending);

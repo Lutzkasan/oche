@@ -23,7 +23,10 @@ const DB_VERSION = 1;
 // 10 = Modi countup, highlow, snooker, Dart-Eintrag mit call (Snooker), War mit config.style, Follow the Leader
 //     mit config.pass. Eine App mit Schema 9 würde War „Runden“ als Erobern und Halten und Follow the Leader
 //     ohne Passen mit Passen nachspielen.
-export const SCHEMA = 10;
+// 11 = Regelversion 2 (Anwurf je Satz, Cut-Throat-Sieg durch fremde Würfe) und Shooting Gallery mit config.targets.
+//     Eine App mit Schema 10 würde Satz-Matches mit falschem Anwerfer und eigene Gallery-Ziele als 121–130
+//     nachspielen.
+export const SCHEMA = 11;
 
 // Löschen hinterlässt einen Lösch-Vermerk statt den Eintrag zu entfernen. Grund: Der Import führt nach ID
 // zusammen. Ein spurlos gelöschter Eintrag käme mit jeder älteren Sicherung zurück. Der Vermerk trägt ein
@@ -85,6 +88,7 @@ export function sanitize(data) {
 }
 
 let dbp = null;
+let handle = null; // offene Datenbank, sobald open() fertig ist
 function open() {
   if (dbp) return dbp;
   dbp = new Promise((resolve, reject) => {
@@ -95,19 +99,26 @@ function open() {
       if (!db.objectStoreNames.contains('games')) db.createObjectStore('games', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => { handle = req.result; resolve(handle); };
     req.onerror = () => reject(req.error);
   });
   return dbp;
 }
 
+// Ab 0.10.0: Ist die Datenbank offen, legt tx die Transaktion sofort an, im selben Takt wie der Aufruf
+// (eine async-Funktion läuft bis zum ersten await synchron). Bis 0.9.0 stand davor immer ein await, die
+// Transaktion entstand erst nach dem laufenden Takt, also nach dem Neuzeichnen der Spielansicht. commit()
+// schließt sie ab, ohne auf weitere Anfragen zu warten. Beides verkürzt die Zeit, in der ein gerade
+// eingegebener Dart nur im Arbeitsspeicher liegt. Grenze: Beendet Android die App, bevor der Browser
+// die Transaktion abgeschlossen hat, fehlt der Dart trotzdem. Diesen Zeitpunkt kann die Seite nicht beeinflussen.
 async function tx(store, mode, fn) {
-  const db = await open();
+  const db = handle || await open();
   return new Promise((resolve, reject) => {
     const t = db.transaction(store, mode);
     const s = t.objectStore(store);
     let result;
     const r = fn(s);
+    if (mode === 'readwrite') t.commit?.();
     if (r) r.onsuccess = () => (result = r.result);
     t.oncomplete = () => resolve(result);
     t.onerror = () => reject(t.error);

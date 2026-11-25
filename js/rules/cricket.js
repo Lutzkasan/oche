@@ -8,6 +8,9 @@
 //   stehen in cfg.numbers, jedes Leg neu ausgelost (draw, deterministisch aus config.seed).
 //   standard:  Überzählige Marks zählen Punkte für dich, solange ein Gegner das Feld offen hat. Höchste Punktzahl gewinnt.
 //   cutthroat: Überzählige Marks zählen für alle offenen Gegner. Niedrigste Punktzahl gewinnt.
+//     Ab Regelversion 2: Wer alles zu hat, gewinnt auch dann sofort, wenn fremde Würfe ihn zum Niedrigsten machen.
+//     Bis rv 1 prüfte nur der eigene Treffer den Sieg, der Spieler musste erst wieder ein Feld treffen.
+//     ANNAHME: Haben zwei Spieler alles zu und gleich wenig Punkte, gewinnt der, der in Wurfreihenfolge zuerst kommt.
 // Mickey Mouse: 20 bis 12 und Bull, optional jedes Doppel und jedes Triple als eigene Felder.
 //   Quellen: Darts Corner (der Reihe nach, ohne Punkte), darts501 (beliebige Reihenfolge, Doppel/Triple-Felder,
 //   Variante mit Punkten). Alles drei ist deshalb Option.
@@ -113,6 +116,16 @@ export function applyMarks(leg, p, d, rows, o) {
   return info;
 }
 
+// Cut-Throat: Wer hat alles zu und die wenigsten Punkte (Gleichstand reicht)? Suche in Wurfreihenfolge ab from.
+export function cutWinner(leg, rows, from) {
+  const n = leg.score.length;
+  for (let k = 0; k < n; k++) {
+    const q = (from + k) % n;
+    if (closedAll(leg, rows, q) && leg.score.every((v, i) => i === q || leg.score[q] <= v)) return q;
+  }
+  return -1;
+}
+
 // Marks pro Runde über alle Darts des Matches, die laufende Aufnahme eingeschlossen
 function mprLine(st, p) {
   const darts = st.darts.filter((x) => x.p === p);
@@ -129,7 +142,18 @@ export const cricket = {
   draw: (cfg, n, rnd) => (cfg.random ? { numbers: drawCricketNumbers(rnd) } : {}),
   initLeg: (cfg, n) => initMarks(cricketRows(cfg), n),
   score: (leg, p) => leg.score[p],
-  applyDart: (leg, p, d, cfg) => applyMarks(leg, p, d, cricketRows(cfg), { points: cfg.variant === 'cutthroat' ? 'cutthroat' : 'standard' }),
+  applyDart(leg, p, d, cfg) {
+    const rows = cricketRows(cfg);
+    const info = applyMarks(leg, p, d, rows, { points: cfg.variant === 'cutthroat' ? 'cutthroat' : 'standard' });
+    // Fremder Sieg durch diesen Dart: Aufnahme endet, turnEnd nennt den Sieger.
+    if (!info.won && info.pts && cfg.variant === 'cutthroat' && cfg.rv >= 2 && cutWinner(leg, rows, p + 1) >= 0) info.endTurn = true;
+    return info;
+  },
+  turnEnd(leg, p, cfg) {
+    if (cfg.variant !== 'cutthroat' || !(cfg.rv >= 2)) return null;
+    const q = cutWinner(leg, cricketRows(cfg), p + 1);
+    return q >= 0 ? { winner: q } : null;
+  },
   line: mprLine,
 };
 

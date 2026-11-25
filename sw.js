@@ -6,8 +6,11 @@ const FILES = [
   './', './index.html', './app.css', './manifest.webmanifest',
 ];
 
+// cache: 'reload' holt jede Datei vom Server, am HTTP-Cache des Browsers vorbei. Bis 0.9.0 konnte addAll
+// eine Datei aus dem HTTP-Cache nehmen. GitHub Pages erlaubt dort einige Minuten Zwischenspeicherung. Kamen zwei
+// Deploys kurz nacheinander, mischte der neue Worker neue und alte Dateien unter der neuen VERSION.
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))));
 });
 
 self.addEventListener('activate', (e) => {

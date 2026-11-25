@@ -11,6 +11,9 @@
 // die Aufnahme endet.
 // Mehrere Spieler werfen abwechselnd je eine Aufnahme. Höchste Summe gewinnt.
 // Gleichstand → Stechen mit je einem weiteren Versuch auf die nächste Zahl (131, 132, …).
+// Eigene Ziele (ab 0.10.0, Wunsch des Nutzers): cfg.targets ist eine Liste von 1 bis 20 Zahlen (2 bis 501), gespielt
+// in dieser Reihenfolge. Jede Zahl ist mit 9 Darts nach jeder Finish-Regel zu checken (höchstens 530 bei Double Out).
+// ANNAHME: Das Stechen geht mit dem letzten Ziel + 1 weiter, wie nach 130. Ohne targets gilt 121 bis 130.
 import { roundsLeg, roundActive, settle } from './rounds.js';
 import { attemptLeg, attemptDart, nextAttempt } from './checks.js';
 
@@ -20,6 +23,9 @@ export const GALLERY_TURNS = 3;
 export const GALLERY_POINTS = { 3: 12, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2, 9: 1 };
 export const galleryPoints = (darts) => GALLERY_POINTS[Math.max(3, darts)] || 0;
 // Finish-Regel eines Spiels. Fehlende Angaben = Stand bis 0.7.1.
+export const TARGETS_MIN = 2, TARGETS_MAX = 501, TARGETS_COUNT = 20;
+export const galleryTargets = (cfg) => (cfg.targets?.length ? cfg.targets : Array.from({ length: GALLERY_COUNT }, (_, i) => GALLERY_FROM + i));
+export const galleryOwn = (cfg) => Boolean(cfg.targets?.length);
 export const galleryOut = (cfg) => ({ out: cfg.out ?? 'double', over: cfg.over ?? 'exact' });
 const OUT_LABEL = { single: 'Finish beliebig', double: 'Double Out', master: 'Master Out' };
 
@@ -28,13 +34,15 @@ export const gallery = {
   title: () => 'Shooting Gallery',
   subtitle: (cfg) => {
     const { out, over } = galleryOut(cfg);
-    return `${GALLERY_FROM}–${GALLERY_FROM + GALLERY_COUNT - 1} · max. 9 Darts · ${OUT_LABEL[out]} · Überwerfen ${over === 'under' ? 'checkt' : 'ist Bust'}`;
+    const t = cfg.targets || [];
+    const own = t.length ? `Eigene Ziele ${t.slice(0, 5).join(' ')}${t.length > 5 ? ` +${t.length - 5}` : ''}` : `${GALLERY_FROM}–${GALLERY_FROM + GALLERY_COUNT - 1}`;
+    return `${own} · max. 9 Darts · ${OUT_LABEL[out]} · Überwerfen ${over === 'under' ? 'checkt' : 'ist Bust'}`;
   },
   defaults: { over: 'under', out: 'single' },
 
   initLeg: (cfg, n) => ({
-    ...roundsLeg(n, GALLERY_COUNT),
-    ...attemptLeg(n, GALLERY_FROM),
+    ...roundsLeg(n, galleryTargets(cfg).length),
+    ...attemptLeg(n, galleryTargets(cfg)[0]),
     score: Array(n).fill(0), checks: Array(n).fill(0),
   }),
 
@@ -53,7 +61,9 @@ export const gallery = {
     } else if (leg.used[p] >= GALLERY_TURNS) {
       Object.assign(info, { fail: true, event: 'fail' });
     } else return info;
-    nextAttempt(leg, p, leg.target[p] + 1);
+    // Nächstes Ziel aus der Liste, im Stechen das letzte + 1
+    const list = galleryTargets(cfg), i = leg.rounds[p] + 1;
+    nextAttempt(leg, p, i < list.length ? list[i] : leg.target[p] + 1);
     info.next = leg.target[p];
     return info;
   },

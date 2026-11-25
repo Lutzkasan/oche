@@ -11,7 +11,7 @@ function niceStep(range) {
   return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => raw <= s);
 }
 
-// entries: [{at, value, won}] chronologisch, roll: geglätteter Wert je Eintrag
+// entries: [{at, value, won}] chronologisch, je Leg (ab 0.10.0, vorher je Match), roll: geglätteter Wert je Eintrag
 export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
   const W = 640, H = 230, L = 46, R = 14, T = 12, B = 30;
   const n = entries.length;
@@ -32,7 +32,7 @@ export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
   const xi = n >= 5 ? [0, Math.floor((n - 1) / 2), n - 1] : n > 1 ? [0, n - 1] : [0];
   const xlab = xi.map((i, k) => `<text x="${x(i)}" y="${H - 8}" class="ax" text-anchor="${n === 1 ? 'middle' : k === 0 ? 'start' : k === xi.length - 1 ? 'end' : 'middle'}">${day(entries[i].at)}</text>`).join('');
 
-  // Viele Matches: Einzelwerte als dünne Linie statt Punkte, sonst überdecken sich die Marker
+  // Viele Legs: Einzelwerte als dünne Linie statt Punkte, sonst überdecken sich die Marker
   const dense = n > 60;
   const raw = dense
     ? `<polyline class="raw" points="${entries.map((e, i) => `${x(i)},${y(e.value)}`).join(' ')}"/>`
@@ -43,7 +43,7 @@ export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
     r: roll.map((v) => f(v, decimals)), at: entries.map((e) => day(e.at)), won: entries.map((e) => e.won), W, T, B, H };
   return `<figure class="lchart">
     <div class="readout" aria-live="polite"></div>
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Verlauf über ${n} Matches" data-pts='${JSON.stringify(data)}'>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Verlauf über ${n} Legs" data-pts='${JSON.stringify(data)}'>
       ${grid}${xlab}${raw}${trend}
       <line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>
       <circle class="sel" r="7" visibility="hidden"/>
@@ -51,7 +51,7 @@ export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
     </svg>
     <figcaption class="legend">
       <span><svg viewBox="0 0 24 10"><line x1="1" x2="23" y1="5" y2="5" class="trend"/></svg>Schnitt der letzten ${window}</span>
-      ${dense ? '<span><svg viewBox="0 0 24 10"><line x1="1" x2="23" y1="5" y2="5" class="raw"/></svg>einzelnes Match</span>'
+      ${dense ? '<span><svg viewBox="0 0 24 10"><line x1="1" x2="23" y1="5" y2="5" class="raw"/></svg>einzelnes Leg</span>'
         : [['won', 'Sieg', (e) => e.won === true], ['lost', 'Niederlage', (e) => e.won === false], ['solo', 'Solo', (e) => e.won == null]]
           .filter(([, , has]) => entries.some(has))
           .map(([cls, label]) => `<span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="pt ${cls}"/></svg>${label}</span>`).join('')}
@@ -59,7 +59,7 @@ export function lineChart(entries, roll, { decimals = 1, window = 5 } = {}) {
   </figure>`;
 }
 
-// Fadenkreuz: Tippen oder Ziehen springt zum nächstgelegenen Match. Ohne Berührung steht es auf dem letzten.
+// Fadenkreuz: Tippen oder Ziehen springt zum nächstgelegenen Leg. Ohne Berührung steht es auf dem letzten.
 export function bindCharts(root) {
   root.querySelectorAll('.lchart').forEach((fig) => {
     const svg = fig.querySelector('svg');
